@@ -489,7 +489,16 @@ object BrainLiftEngine {
             SYLLABUS.map { topic ->
                 val total = count(col, topic.search)
                 val reviewed = count(col, "(${topic.search}) -is:new")
-                val (avgR, mastered) = estimateRetrievability(col, topic.search, reviewed)
+                // Mastery must match desktop EXACTLY. Desktop's live path
+                // (dashboard -> exam_p.coverage_report) calls
+                // Collection.topic_mastery with mastered_threshold=0.0, which
+                // the Rust backend (topic_mastery.rs) maps to its default of
+                // 0.9. So a card counts as "mastered" iff its current FSRS
+                // retrievability >= 0.9. Count that top bucket directly here
+                // (a reviewed, non-new card with prop:r>=0.9), instead of every
+                // card that merely has a retrievability value.
+                val mastered = count(col, "(${topic.search}) -is:new prop:r>=0.9")
+                val avgR = estimateRetrievability(col, topic.search, reviewed)
                 TopicReport(
                     key = topic.key,
                     name = topic.name,
@@ -516,16 +525,18 @@ object BrainLiftEngine {
 
     /**
      * Estimate mean FSRS retrievability over reviewed cards of a topic using
-     * Anki's `prop:r` search in buckets. Returns (avgRetrievability, cardsWithState).
-     * If FSRS is off (search unsupported), returns (0.0, 0) so Memory reports
+     * Anki's `prop:r` search in buckets. Returns the average retrievability.
+     * The bucket `counted` total is used only for this average (it is NOT the
+     * mastered count; mastery is the >=0.9 top bucket, see `coverageReport`).
+     * If FSRS is off (search unsupported), returns 0.0 so Memory reports
      * "not enough data" rather than a fabricated value.
      */
     private fun estimateRetrievability(
         col: Collection,
         search: String,
         reviewed: Int,
-    ): Pair<Double, Int> {
-        if (reviewed == 0) return 0.0 to 0
+    ): Double {
+        if (reviewed == 0) return 0.0
         return try {
             var sum = 0.0
             var counted = 0
@@ -538,9 +549,9 @@ object BrainLiftEngine {
                 counted += c
                 lo += 0.1
             }
-            if (counted == 0) 0.0 to 0 else round4(sum / counted) to counted
+            if (counted == 0) 0.0 else round4(sum / counted)
         } catch (e: Exception) {
-            0.0 to 0
+            0.0
         }
     }
 
@@ -557,6 +568,23 @@ object BrainLiftEngine {
         }
 
     private fun reviewedCardCount(col: Collection): Int = count(col, "deck:* -is:new")
+
+    /**
+     * Total graded reviews across the whole collection, for the readiness
+     * give-up rule. This must match desktop EXACTLY: desktop's
+     * `dashboard._total_graded_reviews` calls `topic_mastery([("All", "deck:*")])`
+     * and reads `total_reviews`, which the Rust engine computes as the sum of
+     * each card's `reps` over every deck (so a card answered 10 times counts as
+     * 10). We mirror that with a single scalar `sum(reps)` over all cards
+     * (`deck:*` matches all cards), which is the exact equivalent. This is NOT
+     * the count of reviewed cards within the ExamP tags.
+     */
+    fun totalGradedReviews(col: Collection): Int =
+        try {
+            col.db.queryScalar("select coalesce(sum(reps), 0) from cards")
+        } catch (e: Exception) {
+            0
+        }
 
     // ------------------------------------------------------------------------
     // Measurements: Memory / Performance / Readiness (kept separate)

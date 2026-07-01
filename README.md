@@ -1,3 +1,44 @@
+<!-- BEGIN BrainLift fork additions -->
+## BrainLift (Exam P) — fork additions
+
+**BrainLift** is a deterministic (no AI) exam-prep layer added to Anki/AnkiDroid
+*from the inside*. It keeps Anki's FSRS scheduler, collection, review loop, and
+sync, and adds an exam readiness model: three **separate** measurements — Memory
+(FSRS recall), Performance (a fixed author-written diagnostic), and Readiness (a
+transparent blend with an explicit give-up rule) — plus official-syllabus topic
+coverage and a rule-based study plan. Every number comes from transparent rules.
+
+- **Chosen exam:** **SOA Exam P** (Probability). Readiness is reported on the
+  conventional 0–10 scale (6 = pass).
+- **Shared logic, honestly:** desktop and mobile share Anki's real Rust FSRS
+  scheduler and the collection/sync layer. The `TopicMastery` Rust RPC runs on
+  the **desktop** fork; **this AnkiDroid fork** links the stock Anki backend and
+  reimplements the same deterministic coverage/measurement aggregation in Kotlin
+  (`AnkiDroid/src/main/java/com/ichi2/anki/brainlift/BrainLiftEngine.kt`) with
+  identical formulas, thresholds, and config shapes, so results match desktop for
+  the same collection. Building the forked backend into AnkiDroid to call
+  `TopicMastery` directly is documented future work.
+
+### Attribution
+
+- The mobile companion is built on **AnkiDroid** (GPL-3.0-or-later).
+- The desktop counterpart is built on **Anki** (AGPL-3.0-or-later).
+- Default bundled study content: **Society of Actuaries (SOA) Exam P Sample
+  Questions & Solutions**, freely published by the SOA for candidates and
+  reproduced for personal study (© Society of Actuaries). Classification into
+  topics uses deterministic keyword rules only — no content is AI-generated.
+  - Questions: https://www.soa.org/globalassets/assets/files/edu/edu-exam-p-sample-quest.pdf
+  - Solutions: https://www.soa.org/globalassets/assets/files/edu/edu-exam-p-sample-sol.pdf
+
+### Build & run
+
+- **Mobile (this repo):** `./gradlew assemblePlayDebug`
+- **Desktop (Anki fork):** `./run`
+
+Upstream AnkiDroid's original README follows below. License files are unchanged.
+
+<!-- END BrainLift fork additions -->
+
 <p align="center">
 <img alt="" src="docs/graphics/logos/banner_readme.png"/>
 </p>

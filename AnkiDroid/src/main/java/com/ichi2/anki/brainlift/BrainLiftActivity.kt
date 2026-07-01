@@ -58,7 +58,10 @@ class BrainLiftActivity : AnkiActivity() {
         val coverage = BrainLiftEngine.coverageReport(col)
         val memory = BrainLiftEngine.computeMemory(coverage)
         val performance = BrainLiftEngine.computePerformance(diag)
-        val totalReviews = coverage.topics.sumOf { it.reviewedCards }
+        // Match desktop's give-up rule input exactly: the total number of
+        // graded reviews across the WHOLE collection (sum of card reps over
+        // deck:*), not the count of reviewed cards within the ExamP tags.
+        val totalReviews = BrainLiftEngine.totalGradedReviews(col)
         val readiness = BrainLiftEngine.computeReadiness(coverage, memory, performance, totalReviews)
         val plan = BrainLiftEngine.buildStudyPlan(col, coverage, LocalDate.now())
         return BrainLiftView(
