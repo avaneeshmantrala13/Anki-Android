@@ -491,6 +491,11 @@
             android:configChanges="keyboardHidden|orientation|screenSize"
             android:label="@string/download_deck"
             android:theme="@style/Theme.MaterialComponents.NoActionBar" />
+        <activity
+            android:name=".brainlift.BrainLiftActivity"
+            android:configChanges="keyboardHidden|orientation|screenSize"
+            android:label="BrainLift"
+            android:exported="false" />
 
         <activity android:name=".IntroductionActivity"
             android:exported="false"

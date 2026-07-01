@@ -13,6 +13,10 @@
         ankidroid:actionViewClass="com.ichi2.ui.AccessibleSearchView"
         ankidroid:showAsAction="always|collapseActionView"/>
     <item
+        android:id="@+id/action_brainlift"
+        android:title="BrainLift"
+        ankidroid:showAsAction="always|withText"/>
+    <item
         android:id="@+id/action_sync"
         android:icon="@drawable/ic_sync"
         android:title="@string/button_sync"

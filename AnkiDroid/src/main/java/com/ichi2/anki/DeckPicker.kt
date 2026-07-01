@@ -1278,6 +1278,11 @@ open class DeckPicker :
             return true
         }
         when (item.itemId) {
+            R.id.action_brainlift -> {
+                Timber.i("DeckPicker:: BrainLift button pressed")
+                startActivity(android.content.Intent(this, com.ichi2.anki.brainlift.BrainLiftActivity::class.java))
+                return true
+            }
             R.id.action_undo -> {
                 Timber.i("DeckPicker:: Undo button pressed")
                 undo()
