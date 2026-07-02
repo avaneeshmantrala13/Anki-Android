@@ -41,13 +41,23 @@ mirrored here in Kotlin:
   still leaks — so the served analogs are guaranteed clean, never handing a
   student a free answer.
 - **Cognitive-load / fatigue offload** (`BrainLiftFatigue.kt`, wired into
-  `Reviewer.answerCardInner`): detects drain (response-time slowdown vs a slow
-  personal baseline, accuracy drop, RT variability, post-error slowing;
-  EWMA-smoothed) and shows a visible Snackbar banner when it eases difficulty or
-  interleaves sub-topics. A TEST MODE flag fires interventions immediately.
+  `Reviewer.answerCardInner`): the drain decision is a **learned logistic-regression
+  classifier**. It predicts `p(drained)` from five research-grounded features
+  (EWMA-smoothed normalized response-time slowdown, accuracy drop, RT variability,
+  post-error slowing, and session-time position). The model is trained **offline in
+  Python** and its **weights are shared constants copied verbatim** from the desktop
+  engine, so Kotlin runs **byte-identical** inference (`p = sigmoid(bias +
+  w·features)`). The learned probability replaces the old fixed drain threshold;
+  when drained it *gradually* eases difficulty or interleaves sub-topics and shows a
+  visible Snackbar banner. The model runs only when the AI toggle is ON (local
+  weights, no network); with it **OFF** — or on any model issue — it falls back to
+  the deterministic drain heuristic. A TEST MODE flag fires interventions
+  immediately. Honest caveat: trained on **research-grounded simulated** data
+  (Fortenbaugh 2015 / Hanzal 2024 / Hassanzadeh-Behbaha 2018), not live students.
 
 The key is read only from `OPENAI_API_KEY` at runtime (never stored/committed).
-Kotlin parity with the desktop numbers is enforced by `BrainLiftParityTest`.
+Kotlin parity with the desktop numbers — including the learned fatigue model's
+exact probabilities and decisions — is enforced by `BrainLiftParityTest`.
 
 ### Attribution
 

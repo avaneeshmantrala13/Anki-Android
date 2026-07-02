@@ -226,4 +226,81 @@ class BrainLiftParityTest {
         assertTrue(d.intervene)
         assertEquals(BrainLiftFatigue.TYPE_INTERLEAVE, d.type)
     }
+
+    // --- Feature 2: LEARNED fatigue model (parity with test_brainlift_fatigue.py)
+
+    @Test
+    fun fatigueModelConstantsMatchDesktop() {
+        assertEquals("logreg-sim-v1", BrainLiftFatigue.FATIGUE_MODEL_VERSION)
+        assertEquals(-4.125162, BrainLiftFatigue.FATIGUE_MODEL_BIAS, eps)
+        val w = BrainLiftFatigue.FATIGUE_MODEL_WEIGHTS
+        assertEquals(5, w.size)
+        assertEquals(4.943704, w[0], eps)
+        assertEquals(3.092085, w[1], eps)
+        assertEquals(0.795880, w[2], eps)
+        assertEquals(1.538849, w[3], eps)
+        assertEquals(3.579352, w[4], eps)
+        assertEquals(0.50, BrainLiftFatigue.MODEL_INTERVENE, eps)
+        assertEquals(0.80, BrainLiftFatigue.MODEL_SEVERE, eps)
+    }
+
+    @Test
+    fun sigmoidMatchesDesktop() {
+        assertEquals(0.5, BrainLiftFatigue.sigmoid(0.0), eps)
+        assertEquals(1.0, BrainLiftFatigue.sigmoid(1000.0), eps)
+        assertEquals(0.0, BrainLiftFatigue.sigmoid(-1000.0), eps)
+    }
+
+    @Test
+    fun predictDrainProbabilityMatchesPythonReference() {
+        // Locked reference values from test_brainlift_fatigue.py (Python == Kotlin).
+        val cases =
+            listOf(
+                doubleArrayOf(0.0, 0.0, 0.0, 0.0, 0.0) to 0.015903856063,
+                doubleArrayOf(1.0, 1.0, 1.0, 1.0, 1.0) to 0.999945904638,
+                doubleArrayOf(0.6, 0.4, 0.3, 0.2, 0.5) to 0.917896515624,
+                doubleArrayOf(0.2, 0.1, 0.05, 0.0, 0.1) to 0.080951885817,
+                doubleArrayOf(0.9, 0.8, 0.6, 0.5, 0.9) to 0.999301731886,
+            )
+        for ((feats, expected) in cases) {
+            assertEquals(expected, BrainLiftFatigue.predictDrainProbability(feats), 1e-9)
+        }
+    }
+
+    @Test
+    fun modelFeatureVectorSessionPos() {
+        var s = BrainLiftFatigue.newSession(0)
+        s = steady(8, 3.0, true, s)
+        val feats = BrainLiftFatigue.modelFeatureVector(s, now = 45 * 60) // 45 min in
+        assertEquals(5, feats.size)
+        assertEquals(0.5, feats[4], eps) // norm(45, 0, 90)
+    }
+
+    @Test
+    fun modelFlagsDrainedButNotFreshSession() {
+        var fresh = BrainLiftFatigue.newSession(0)
+        fresh = steady(15, 3.0, true, fresh)
+        val dFresh = BrainLiftFatigue.decide(fresh, testMode = true, now = 60, useModel = true)
+        assertTrue(dFresh.usedModel)
+        assertTrue(!dFresh.intervene)
+        assertTrue(dFresh.probability < BrainLiftFatigue.MODEL_INTERVENE)
+
+        var drained = BrainLiftFatigue.newSession(0)
+        drained = steady(8, 2.0, true, drained)
+        drained = steady(8, 9.0, false, drained)
+        val dDrain = BrainLiftFatigue.decide(drained, testMode = true, now = 120, useModel = true)
+        assertTrue(dDrain.usedModel)
+        assertTrue(dDrain.intervene)
+        assertTrue(dDrain.probability >= BrainLiftFatigue.MODEL_INTERVENE)
+    }
+
+    @Test
+    fun aiOffUsesDeterministicHeuristic() {
+        var s = BrainLiftFatigue.newSession(0)
+        s = steady(15, 3.0, true, s)
+        val d = BrainLiftFatigue.decide(s, testMode = true, now = 60, useModel = false)
+        assertTrue(!d.usedModel)
+        assertEquals(0.0, d.probability, eps)
+        assertTrue(!d.intervene)
+    }
 }

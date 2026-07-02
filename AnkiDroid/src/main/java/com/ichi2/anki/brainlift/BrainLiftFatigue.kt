@@ -19,15 +19,22 @@ package com.ichi2.anki.brainlift
 import com.ichi2.anki.libanki.Collection
 import org.json.JSONArray
 import org.json.JSONObject
+import kotlin.math.exp
 import kotlin.math.min
 import kotlin.math.sqrt
 
 /**
  * Feature 2 — Cognitive-load / fatigue offload (Kotlin mirror of desktop
- * `anki.brainlift.fatigue`). Constants, update rule, drain formula, and the
- * intervention decision are IDENTICAL to the Python engine and
- * `BRAINLIFT_AI_SPEC.md` §5-§6, so a session detected on one platform behaves
- * the same on the other. All state persists in collection config (syncs).
+ * `anki.brainlift.fatigue`). Constants, update rule, drain formula, the LEARNED
+ * logistic-regression model (§5.5), and the intervention decision are IDENTICAL
+ * to the Python engine and `BRAINLIFT_AI_SPEC.md` §5-§6, so a session detected on
+ * one platform behaves the same on the other.
+ *
+ * The learned model decides WHEN drain is happening (its probability replaces the
+ * fixed drain threshold) whenever the master AI toggle (`brainlift_ai_enabled`)
+ * is ON; with it OFF — or on any model issue — the engine falls back to the
+ * deterministic drain heuristic. Both paths always produce a decision. All state
+ * persists in collection config (syncs).
  */
 object BrainLiftFatigue {
     const val SESSION_KEY = "brainlift_fatigue_session"
@@ -65,6 +72,29 @@ object BrainLiftFatigue {
     private const val RT_MIN = 0.2
     private const val RT_MAX = 120.0
 
+    // --- learned fatigue model (see BRAINLIFT_AI_SPEC.md §5.5) ---------------
+    // Logistic regression trained OFFLINE in Python on research-grounded
+    // SIMULATED sessions (calibrated to Fortenbaugh 2015, Hanzal 2024,
+    // Hassanzadeh-Behbaha 2018). Weights are copied VERBATIM from
+    // brainlift_eval/train_fatigue_model.py so this runs byte-identical to
+    // desktop `anki.brainlift.fatigue`. Inference: p = sigmoid(bias + w·features).
+    const val FATIGUE_MODEL_VERSION = "logreg-sim-v1"
+
+    // feature order: slowdown, accdrop, rt_var, post_error, session_pos
+    const val FATIGUE_MODEL_BIAS = -4.125162
+    val FATIGUE_MODEL_WEIGHTS =
+        doubleArrayOf(
+            4.943704, // slowdown
+            3.092085, // accdrop
+            0.795880, // rt_var
+            1.538849, // post_error
+            3.579352, // session_pos
+        )
+
+    // Pre-declared decision thresholds on the learned probability.
+    const val MODEL_INTERVENE = 0.50
+    const val MODEL_SEVERE = 0.80
+
     const val BANNER_INTERLEAVE = "Cognitive offload deemed necessary — adding variety"
     const val BANNER_EASE = "Cognitive offload — easing difficulty"
     const val TYPE_EASE = "ease_difficulty"
@@ -83,6 +113,11 @@ object BrainLiftFatigue {
         var sameTopicStreak: Int = 0,
         var currentTopic: String = "",
         var smoothedDrain: Double = 0.0,
+        // EWMA-smoothed normalized model features (parallel to smoothedDrain).
+        var sfSlowdown: Double = 0.0,
+        var sfAccdrop: Double = 0.0,
+        var sfVar: Double = 0.0,
+        var sfPosterr: Double = 0.0,
         var answersSinceIntervention: Int = INTERVENTION_COOLDOWN,
     )
 
@@ -93,6 +128,9 @@ object BrainLiftFatigue {
         val drain: Double,
         val sessionMinutes: Double,
         val reason: String,
+        // Learned-model fields (0.0 / false on the deterministic fallback path).
+        val probability: Double = 0.0,
+        val usedModel: Boolean = false,
     )
 
     fun newSession(now: Long): FatigueState = FatigueState(sessionStart = now)
@@ -168,53 +206,147 @@ object BrainLiftFatigue {
         s.lastCorrect = correct
         s.answersSinceIntervention += 1
 
-        val drain = computeDrain(s)
+        // instantaneous normalized signals -> deterministic drain + smoothing,
+        // and the EWMA-smoothed feature vector consumed by the learned model.
+        val nf = instantNormFeatures(s)
+        val drain = clamp(W_SLOWDOWN * nf[0] + W_ACC * nf[1] + W_VAR * nf[2] + W_POSTERR * nf[3])
         s.smoothedDrain = (1 - DRAIN_ALPHA) * s.smoothedDrain + DRAIN_ALPHA * drain
+        s.sfSlowdown = (1 - DRAIN_ALPHA) * s.sfSlowdown + DRAIN_ALPHA * nf[0]
+        s.sfAccdrop = (1 - DRAIN_ALPHA) * s.sfAccdrop + DRAIN_ALPHA * nf[1]
+        s.sfVar = (1 - DRAIN_ALPHA) * s.sfVar + DRAIN_ALPHA * nf[2]
+        s.sfPosterr = (1 - DRAIN_ALPHA) * s.sfPosterr + DRAIN_ALPHA * nf[3]
         return s
     }
 
-    fun computeDrain(s: FatigueState): Double {
+    /** The four normalized [0,1] drain signals for the current state (pure).
+     * Shared by the deterministic drain score AND the learned model. */
+    private fun instantNormFeatures(s: FatigueState): DoubleArray {
         val baselineRt = maxOf(s.baselineRt, RT_MIN)
         val baselineVar = maxOf(s.rtVar, RT_MIN)
         val slowdown = if (s.recentRt.isNotEmpty()) mean(s.recentRt) / baselineRt else 1.0
         val accdrop = if (s.recentAcc.isNotEmpty()) s.baselineAcc - mean(s.recentAcc) else 0.0
         val varRatio = if (s.recentRt.isNotEmpty()) popStd(s.recentRt) / baselineVar else 1.0
         val posterr = s.postErrorRt / baselineRt
-        val drain =
-            W_SLOWDOWN * norm(slowdown, SLOWDOWN_LO, SLOWDOWN_HI) +
-                W_ACC * norm(accdrop, ACCDROP_LO, ACCDROP_HI) +
-                W_VAR * norm(varRatio, VAR_LO, VAR_HI) +
-                W_POSTERR * norm(posterr, POSTERR_LO, POSTERR_HI)
-        return clamp(drain)
+        return doubleArrayOf(
+            norm(slowdown, SLOWDOWN_LO, SLOWDOWN_HI),
+            norm(accdrop, ACCDROP_LO, ACCDROP_HI),
+            norm(varRatio, VAR_LO, VAR_HI),
+            norm(posterr, POSTERR_LO, POSTERR_HI),
+        )
     }
+
+    fun computeDrain(s: FatigueState): Double {
+        val nf = instantNormFeatures(s)
+        return clamp(W_SLOWDOWN * nf[0] + W_ACC * nf[1] + W_VAR * nf[2] + W_POSTERR * nf[3])
+    }
+
+    // --- learned model inference (parity-critical; mirror of Python) --------
+
+    /** Numerically-stable logistic sigmoid (identical to Python `sigmoid`). */
+    fun sigmoid(z: Double): Double =
+        if (z >= 0) {
+            1.0 / (1.0 + exp(-z))
+        } else {
+            val ez = exp(z)
+            ez / (1.0 + ez)
+        }
+
+    /** p(drained) = sigmoid(bias + w·features); features in FATIGUE_MODEL order. */
+    fun predictDrainProbability(features: DoubleArray): Double {
+        var z = FATIGUE_MODEL_BIAS
+        for (i in FATIGUE_MODEL_WEIGHTS.indices) {
+            z += FATIGUE_MODEL_WEIGHTS[i] * features[i]
+        }
+        return sigmoid(z)
+    }
+
+    /** Build the 5-feature model input from a session state (pure). */
+    fun modelFeatureVector(
+        state: FatigueState,
+        now: Long,
+    ): DoubleArray {
+        val sessionMinutes = (now - state.sessionStart) / 60.0
+        val sessionPos = norm(sessionMinutes, 0.0, PROD_MIN_MINUTES)
+        return doubleArrayOf(state.sfSlowdown, state.sfAccdrop, state.sfVar, state.sfPosterr, sessionPos)
+    }
+
+    /** Learned probability for a state, or null if the model can't run (so the
+     * caller falls back to the deterministic heuristic). */
+    fun modelProbability(
+        state: FatigueState,
+        now: Long,
+    ): Double? =
+        try {
+            if (FATIGUE_MODEL_WEIGHTS.size != 5) null else predictDrainProbability(modelFeatureVector(state, now))
+        } catch (e: Exception) {
+            null
+        }
 
     fun decide(
         state: FatigueState,
         testMode: Boolean,
         now: Long,
+        useModel: Boolean = false,
     ): FatigueDecision {
         val drain = round4(state.smoothedDrain)
-        val sessionMinutes = round2((now - state.sessionStart) / 60.0)
+        val rawSessionMinutes = (now - state.sessionStart) / 60.0
+        val sessionMinutes = round2(rawSessionMinutes)
+
+        // Learned score + thresholds, with a clean fallback to the heuristic.
+        // `prob != null` iff the model ran (it is null when useModel is false),
+        // so it doubles as the "used the learned model" flag.
+        val prob = if (useModel) modelProbability(state, now) else null
+        val score: Double
+        val interveneCut: Double
+        val severeCut: Double
+        if (prob != null) {
+            score = prob
+            interveneCut = MODEL_INTERVENE
+            severeCut = MODEL_SEVERE
+        } else {
+            score = state.smoothedDrain
+            interveneCut = DRAIN_INTERVENE
+            severeCut = SEVERE_DRAIN
+        }
+        val usedModel = prob != null
+        val pReport = if (prob != null) round4(prob) else 0.0
+
+        fun d(
+            intervene: Boolean,
+            type: String?,
+            banner: String?,
+            reason: String,
+        ) = FatigueDecision(intervene, type, banner, drain, sessionMinutes, reason, pReport, usedModel)
+
         if (state.answers < MIN_ANSWERS_BEFORE_DETECT) {
-            return FatigueDecision(false, null, null, drain, sessionMinutes, "warming up")
+            return d(false, null, null, "warming up")
         }
         if (state.answersSinceIntervention < INTERVENTION_COOLDOWN) {
-            return FatigueDecision(false, null, null, drain, sessionMinutes, "cooldown")
+            return d(false, null, null, "cooldown")
         }
-        val timingOk = testMode || sessionMinutes >= PROD_MIN_MINUTES || state.smoothedDrain >= SEVERE_DRAIN
-        if (!(timingOk && state.smoothedDrain >= DRAIN_INTERVENE)) {
-            val reason = if (state.smoothedDrain < DRAIN_INTERVENE) "below threshold" else "timing gate not met"
-            return FatigueDecision(false, null, null, drain, sessionMinutes, reason)
+        val timingOk = testMode || rawSessionMinutes >= PROD_MIN_MINUTES || score >= severeCut
+        if (!(timingOk && score >= interveneCut)) {
+            val reason = if (score < interveneCut) "below threshold" else "timing gate not met"
+            return d(false, null, null, reason)
         }
         return if (state.sameTopicStreak >= SAME_TOPIC_STREAK_LIMIT) {
-            FatigueDecision(true, TYPE_INTERLEAVE, BANNER_INTERLEAVE, drain, sessionMinutes, "high same-topic streak")
+            d(true, TYPE_INTERLEAVE, BANNER_INTERLEAVE, "high same-topic streak")
         } else {
-            FatigueDecision(true, TYPE_EASE, BANNER_EASE, drain, sessionMinutes, "sustained drain")
+            d(true, TYPE_EASE, BANNER_EASE, "sustained drain")
         }
     }
 
     // --- config persistence (syncs) -----------------------------------------
     fun testMode(col: Collection): Boolean = col.config.get<Boolean>(TEST_MODE_KEY) ?: true
+
+    /** Use the learned classifier iff the master AI toggle is ON; else fall back
+     * to the deterministic heuristic (both still produce a decision). */
+    fun modelEnabled(col: Collection): Boolean =
+        try {
+            BrainLiftAi.aiEnabled(col)
+        } catch (e: Exception) {
+            false
+        }
 
     fun setTestMode(
         col: Collection,
@@ -250,7 +382,7 @@ object BrainLiftFatigue {
     ): FatigueDecision {
         val state = loadSession(col) ?: newSession(now)
         updateState(state, rtSeconds, correct, topicKey)
-        val decision = decide(state, testMode(col), now)
+        val decision = decide(state, testMode(col), now, useModel = modelEnabled(col))
         if (decision.intervene) {
             state.answersSinceIntervention = 0
             col.config.set(
@@ -283,6 +415,10 @@ object BrainLiftFatigue {
             .put("same_topic_streak", s.sameTopicStreak)
             .put("current_topic", s.currentTopic)
             .put("smoothed_drain", s.smoothedDrain)
+            .put("sf_slowdown", s.sfSlowdown)
+            .put("sf_accdrop", s.sfAccdrop)
+            .put("sf_var", s.sfVar)
+            .put("sf_posterr", s.sfPosterr)
             .put("answers_since_intervention", s.answersSinceIntervention)
 
     private fun fromJson(o: JSONObject): FatigueState {
@@ -303,6 +439,10 @@ object BrainLiftFatigue {
             sameTopicStreak = o.optInt("same_topic_streak", 0),
             currentTopic = o.optString("current_topic", ""),
             smoothedDrain = o.optDouble("smoothed_drain", 0.0),
+            sfSlowdown = o.optDouble("sf_slowdown", 0.0),
+            sfAccdrop = o.optDouble("sf_accdrop", 0.0),
+            sfVar = o.optDouble("sf_var", 0.0),
+            sfPosterr = o.optDouble("sf_posterr", 0.0),
             answersSinceIntervention = o.optInt("answers_since_intervention", INTERVENTION_COOLDOWN),
         )
     }
