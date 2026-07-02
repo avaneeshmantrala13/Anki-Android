@@ -64,6 +64,116 @@ class BrainLiftParityTest {
         assertTrue(a.sourceText.isNotEmpty())
     }
 
+    // --- leakage gate (parity with desktop test_brainlift_leakage.py) --------
+
+    /** Echoes the source (near-verbatim + same answer); optionally "fixes" itself
+     * once attempt >= fixAfter to exercise catch-and-regenerate. */
+    private class LeakyClient(
+        private val fixAfter: Int? = null,
+    ) : BrainLiftAi.AiClient {
+        var calls = 0
+
+        override fun generateAnalog(
+            front: String,
+            back: String,
+            sourceCardId: Long,
+            attempt: Int,
+        ): BrainLiftAi.GeneratedAnalog {
+            calls += 1
+            if (fixAfter != null && attempt >= fixAfter) {
+                return BrainLiftAi.GeneratedAnalog(
+                    question = "Completely reworded prompt using brand new numbers 999",
+                    choices = listOf("$back-changed", "aaa", "bbb"),
+                    correctIndex = 0,
+                    sourceCardId = sourceCardId,
+                    sourceText = "$front :: $back",
+                    model = "test",
+                )
+            }
+            return BrainLiftAi.GeneratedAnalog(
+                question = front,
+                choices = listOf(back, "other1", "other2"),
+                correctIndex = 0,
+                sourceCardId = sourceCardId,
+                sourceText = "$front :: $back",
+                model = "test",
+            )
+        }
+    }
+
+    @Test
+    fun sharedGateConstantsMatchDesktop() {
+        assertEquals(0.9, BrainLiftAi.LEAKAGE_SIM_THRESHOLD, eps)
+        assertEquals(3, BrainLiftAi.MAX_REGEN)
+        assertEquals(101L, BrainLiftAi.REGEN_PARAM_STRIDE)
+    }
+
+    private fun analog(
+        question: String,
+        correct: String,
+    ) = BrainLiftAi.GeneratedAnalog(question, listOf(correct, "zzz-other", "yyy-other"), 0, 1, "src", "test")
+
+    @Test
+    fun isLeakedMatchesDesktop() {
+        val front = "X ~ Poisson(lambda=3). What is Var(X)?"
+        // near-verbatim + same answer -> leaked
+        assertTrue(BrainLiftAi.isLeaked(analog(front, "3"), front, "3"))
+        // same wording, different answer -> valid re-parameterization
+        assertTrue(!BrainLiftAi.isLeaked(analog(front, "7"), front, "3"))
+        // different wording, same answer -> not leaked
+        assertTrue(!BrainLiftAi.isLeaked(analog("A call center gets calls at rate 5; variance?", "3"), front, "3"))
+        // numeric equivalence 0.20 == 0.2 -> leaked
+        assertTrue(BrainLiftAi.isLeaked(analog(front, "0.20"), front, "0.2"))
+    }
+
+    @Test
+    fun gateBlocksPersistentLeaker() {
+        val gated = BrainLiftAi.generateGatedAnalog(LeakyClient(fixAfter = null), "front text", "42", 1)
+        assertTrue(gated.leakedInitially)
+        assertEquals(BrainLiftAi.MAX_REGEN, gated.regenAttempts)
+        assertTrue(gated.blocked)
+        assertTrue(!gated.served)
+    }
+
+    @Test
+    fun gateCatchesAndRegenerates() {
+        val gated = BrainLiftAi.generateGatedAnalog(LeakyClient(fixAfter = 2), "front text", "42", 1)
+        assertTrue(gated.leakedInitially)
+        assertEquals(2, gated.regenAttempts)
+        assertTrue(!gated.blocked)
+        assertTrue(gated.served)
+        assertTrue(!BrainLiftAi.isLeaked(gated.analog, "front text", "42"))
+    }
+
+    @Test
+    fun gatePassesCleanGenerationUntouched() {
+        val gated = BrainLiftAi.generateGatedAnalog(LeakyClient(fixAfter = 0), "front text", "42", 1)
+        assertTrue(!gated.leakedInitially)
+        assertEquals(0, gated.regenAttempts)
+        assertTrue(gated.served)
+    }
+
+    @Test
+    fun deterministicRegenChangesAnswer() {
+        val client = BrainLiftAi.DeterministicAnalogClient()
+        val front = "X ~ Poisson(lambda=3). What is Var(X)?"
+        val a0 = client.generateAnalog(front, "3", 7, 0)
+        val a1 = client.generateAnalog(front, "3", 7, 1)
+        assertTrue(
+            a0.question != a1.question ||
+                a0.choices[a0.correctIndex] != a1.choices[a1.correctIndex],
+        )
+    }
+
+    @Test
+    fun deterministicPipelineServesCleanAnalogForM06LikeSource() {
+        val client = BrainLiftAi.DeterministicAnalogClient()
+        val front = "The joint pdf f(x,y)=1 on the unit square 0<x<1, 0<y<1. What is the marginal density of X?"
+        val gated = BrainLiftAi.generateGatedAnalog(client, front, "1 on (0,1)", 2006)
+        assertTrue(gated.served)
+        assertTrue(!gated.blocked)
+    }
+
     // --- Feature 2: fatigue --------------------------------------------------
     private fun steady(
         n: Int,

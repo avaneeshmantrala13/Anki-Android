@@ -33,7 +33,13 @@ mirrored here in Kotlin:
   accuracy, gamma, and a confidence-authority multiplier that feeds the scheduler.
   Analog generation calls the OpenAI REST API directly via OkHttp
   (`BrainLiftAi.kt`); it degrades to a deterministic generator when AI is off /
-  offline / rate-limited.
+  offline / rate-limited. Every generated analog passes through a **leakage gate**
+  (`BrainLiftAi.generateGatedAnalog`, mirroring desktop `generate_gated_analog`):
+  if an analog is near-verbatim to its source AND resolves to the same answer
+  (`LEAKAGE_SIM_THRESHOLD=0.9`) it is **regenerated** up to `MAX_REGEN=3` times
+  with a stronger re-parameterize instruction, then **blocked/withheld** if it
+  still leaks — so the served analogs are guaranteed clean, never handing a
+  student a free answer.
 - **Cognitive-load / fatigue offload** (`BrainLiftFatigue.kt`, wired into
   `Reviewer.answerCardInner`): detects drain (response-time slowdown vs a slow
   personal baseline, accuracy drop, RT variability, post-error slowing;

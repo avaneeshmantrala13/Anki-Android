@@ -47,6 +47,15 @@ object BrainLiftAi {
     const val DEFAULT_MODEL = "gpt-4o-mini"
     const val OPENAI_ENDPOINT = "https://api.openai.com/v1/chat/completions"
 
+    // --- leakage gate constants (shared with desktop; see BRAINLIFT_AI_SPEC.md)
+    // An analog "leaks" when it is near-verbatim to its source AND resolves to
+    // the SAME answer. The pipeline regenerates up to MAX_REGEN times with a
+    // stronger re-parameterize instruction, then BLOCKS (withholds) if it still
+    // leaks, so the SERVED set contains zero leaked items.
+    const val LEAKAGE_SIM_THRESHOLD = 0.9 // jaccard question overlap == near-verbatim
+    const val MAX_REGEN = 3 // regeneration attempts before an item is blocked/withheld
+    const val REGEN_PARAM_STRIDE = 101L // deterministic regen perturbs numbers by this stride
+
     data class GeneratedAnalog(
         val question: String,
         val choices: List<String>,
@@ -62,7 +71,101 @@ object BrainLiftAi {
             front: String,
             back: String,
             sourceCardId: Long,
+            attempt: Int = 0,
         ): GeneratedAnalog
+    }
+
+    // --- leakage gate (mirror of desktop ai.py) -----------------------------
+    private val leakWordRe = Regex("[a-z0-9]+")
+
+    private fun leakTokens(text: String): Set<String> = leakWordRe.findAll(text.lowercase()).map { it.value }.toSet()
+
+    /** Jaccard word overlap (identical to the eval harness `jaccard`). */
+    fun questionSimilarity(
+        a: String,
+        b: String,
+    ): Double {
+        val ta = leakTokens(a)
+        val tb = leakTokens(b)
+        if (ta.isEmpty() || tb.isEmpty()) return 0.0
+        return ta.intersect(tb).size.toDouble() / ta.union(tb).size.toDouble()
+    }
+
+    /** True if generated answer resolves to the same value as the source answer. */
+    private fun sameAnswer(
+        generated: String,
+        source: String,
+    ): Boolean {
+        val g =
+            generated
+                .trim()
+                .lowercase()
+                .split(Regex("\\s+"))
+                .joinToString(" ")
+        val s =
+            source
+                .trim()
+                .lowercase()
+                .split(Regex("\\s+"))
+                .joinToString(" ")
+        if (g == s) return true
+        val gn = g.toDoubleOrNull()
+        val sn = s.toDoubleOrNull()
+        return gn != null && sn != null && abs(gn - sn) < 1e-9
+    }
+
+    /** Leakage = near-verbatim question wording AND same resolved answer. */
+    fun isLeaked(
+        analog: GeneratedAnalog,
+        sourceFront: String,
+        sourceBack: String,
+    ): Boolean {
+        if (analog.choices.isEmpty() || analog.correctIndex !in analog.choices.indices) return false
+        val genAnswer = analog.choices[analog.correctIndex]
+        val sim = questionSimilarity(analog.question, sourceFront)
+        return sim >= LEAKAGE_SIM_THRESHOLD && sameAnswer(genAnswer, sourceBack)
+    }
+
+    /**
+     * Result of running the leakage gate on one generated analog.
+     * [served] items are safe to show; [blocked] items still leaked after
+     * [MAX_REGEN] retries and are withheld. [regenAttempts]/[leakedInitially]
+     * are reported for transparency.
+     */
+    data class GatedAnalog(
+        val analog: GeneratedAnalog,
+        val served: Boolean,
+        val blocked: Boolean,
+        val regenAttempts: Int,
+        val leakedInitially: Boolean,
+    )
+
+    /**
+     * Generate an analog and enforce the leakage gate: regenerate up to
+     * [MAX_REGEN] times with a stronger re-parameterize instruction, then BLOCK
+     * (withhold) if it still leaks. Guarantees the served item is not leaked.
+     */
+    fun generateGatedAnalog(
+        client: AiClient,
+        front: String,
+        back: String,
+        sourceCardId: Long,
+    ): GatedAnalog {
+        var analog = client.generateAnalog(front, back, sourceCardId)
+        val leakedInitially = isLeaked(analog, front, back)
+        var attempts = 0
+        while (isLeaked(analog, front, back) && attempts < MAX_REGEN) {
+            attempts += 1
+            analog = client.generateAnalog(front, back, sourceCardId, attempts)
+        }
+        val stillLeaked = isLeaked(analog, front, back)
+        return GatedAnalog(
+            analog = analog,
+            served = !stillLeaked,
+            blocked = stillLeaked,
+            regenAttempts = attempts,
+            leakedInitially = leakedInitially,
+        )
     }
 
     // --- shared number formatting (matches Python fmt_num) ------------------
@@ -207,12 +310,17 @@ object BrainLiftAi {
             front: String,
             back: String,
             sourceCardId: Long,
+            attempt: Int,
         ): GeneratedAnalog {
             val sourceText = "$front :: $back".trim()
             val matched = matchedTemplate(sourceText)
             val renderer = matched ?: templates[(sourceCardId % templates.size).toInt()].second
-            val (question, correct, distractors) = renderer(sourceCardId)
-            val (choices, idx) = place(correct, distractors, sourceCardId)
+            // On regeneration (attempt>0) perturb the parameter id so the numbers
+            // — and therefore the correct answer — change, resolving any leakage
+            // while still testing the same concept. Source traceability unchanged.
+            val paramId = sourceCardId + attempt * REGEN_PARAM_STRIDE
+            val (question, correct, distractors) = renderer(paramId)
+            val (choices, idx) = place(correct, distractors, paramId)
             return GeneratedAnalog(
                 question = question,
                 choices = choices,
@@ -235,19 +343,32 @@ object BrainLiftAi {
             front: String,
             back: String,
             sourceCardId: Long,
+            attempt: Int,
         ): GeneratedAnalog {
             val sourceText = "$front :: $back".trim()
             return try {
                 val system =
                     "You are an actuarial exam tutor. Given a source flashcard, write ONE " +
                         "multiple-choice analog question that tests the SAME concept but is reworded " +
-                        "and re-parameterized (different numbers/scenario). Return STRICT JSON: " +
+                        "and RE-PARAMETERIZED. You MUST change the numbers/scenario so the correct " +
+                        "answer is DIFFERENT from the source answer — never copy the source question " +
+                        "and never reuse its answer. Return STRICT JSON: " +
                         "{\"question\": str, \"choices\": [str,...], \"correct_index\": int}. " +
                         "3-4 choices, exactly one correct."
+                var user =
+                    "SOURCE FRONT: $front\nSOURCE BACK: $back\n" +
+                        "The source answer is '$back'. Your analog MUST use different numbers so its " +
+                        "correct answer is NOT equal to that. Return only JSON."
+                if (attempt > 0) {
+                    user +=
+                        "\n\nRETRY $attempt: your previous analog was too close to the source and " +
+                        "resolved to the SAME answer. Substantially change the numbers and phrasing " +
+                        "so the correct answer clearly differs."
+                }
                 val messages =
                     JSONArray()
                         .put(JSONObject().put("role", "system").put("content", system))
-                        .put(JSONObject().put("role", "user").put("content", "SOURCE FRONT: $front\nSOURCE BACK: $back\nReturn only JSON."))
+                        .put(JSONObject().put("role", "user").put("content", user))
                 val payload =
                     JSONObject()
                         .put("model", model)
@@ -284,7 +405,7 @@ object BrainLiftAi {
                 }
             } catch (e: Exception) {
                 Timber.w(e, "OpenAI analog generation failed; using deterministic fallback")
-                val fb = fallback.generateAnalog(front, back, sourceCardId)
+                val fb = fallback.generateAnalog(front, back, sourceCardId, attempt)
                 fb.copy(model = "$model-fallback", ok = false)
             }
         }
