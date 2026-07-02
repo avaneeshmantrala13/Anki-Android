@@ -144,6 +144,9 @@ open class Reviewer :
     BindingProcessor<ReviewerBinding, ViewerCommand> {
     private var queueState: CurrentQueueState? = null
     private val customSchedulingKey = TimeManager.time.intTimeMS().toString()
+
+    /** BrainLift: epoch ms when the current question was shown (for fatigue RT). */
+    private var brainLiftQuestionShownAt: Long = 0L
     private var hasDrawerSwipeConflicts = false
     private var showWhiteboard = true
     private var prefFullscreenReview = false
@@ -1254,6 +1257,44 @@ open class Reviewer :
         if (timebox != null) {
             dealWithTimeBox(timebox)
         }
+
+        // BrainLift Feature 2: feed this answer into the fatigue detector.
+        recordBrainLiftFatigue(rating)
+    }
+
+    /**
+     * BrainLift: fold the just-answered card into the synced fatigue session and
+     * show a clearly visible banner when a cognitive-offload intervention fires.
+     * Never allowed to disrupt reviewing.
+     */
+    private suspend fun recordBrainLiftFatigue(rating: Rating) {
+        try {
+            val nowMs = TimeManager.time.intTimeMS()
+            val rtSeconds = if (brainLiftQuestionShownAt > 0) (nowMs - brainLiftQuestionShownAt) / 1000.0 else 0.0
+            val correct = rating != Rating.AGAIN
+            val topic =
+                try {
+                    currentCard
+                        ?.note(getColUnsafe)
+                        ?.tags
+                        ?.firstOrNull { it.startsWith("ExamP::") }
+                        ?.split("::")
+                        ?.getOrNull(1) ?: ""
+                } catch (e: Exception) {
+                    ""
+                }
+            val now = nowMs / 1000L
+            val decision =
+                withCol {
+                    com.ichi2.anki.brainlift.BrainLiftFatigue
+                        .recordAnswer(this, rtSeconds, correct, topic, now)
+                }
+            if (decision.intervene && decision.banner != null) {
+                showSnackbar("🧠 ${decision.banner}", Snackbar.LENGTH_LONG)
+            }
+        } catch (e: Exception) {
+            Timber.w(e, "BrainLift fatigue tracking failed")
+        }
     }
 
     private suspend fun dealWithTimeBox(timebox: Collection.TimeboxReached) {
@@ -1283,6 +1324,9 @@ open class Reviewer :
 
     override fun displayCardQuestion() {
         statesMutated = false
+        // BrainLift Feature 2: mark when the question was shown, to measure the
+        // per-question response time for fatigue detection.
+        brainLiftQuestionShownAt = TimeManager.time.intTimeMS()
         // show timer, if activated in the deck's preferences
         answerTimer.setupForCard(getColUnsafe, currentCard!!)
         delayedHide(100)

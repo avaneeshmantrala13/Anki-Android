@@ -19,6 +19,30 @@ coverage and a rule-based study plan. Every number comes from transparent rules.
   the same collection. Building the forked backend into AnkiDroid to call
   `TopicMastery` directly is documented future work.
 
+### Optional AI features (opt-in; the three scores work with AI OFF)
+
+Two AI features sit on top of the deterministic core, behind a master toggle
+(`brainlift_ai_enabled`, default OFF). **With AI off, Memory / Performance /
+Readiness and both features still function** via a deterministic fallback. The
+formulas are specified once in the desktop repo's `BRAINLIFT_AI_SPEC.md` and
+mirrored here in Kotlin:
+
+- **Metacognitive calibration** (`BrainLiftCalibration.kt`): self-rate confidence
+  on 15 cards, answer 15 AI-generated analog MCQs (each recording its **source
+  card id + text** for traceability), then compute deviation, calibration
+  accuracy, gamma, and a confidence-authority multiplier that feeds the scheduler.
+  Analog generation calls the OpenAI REST API directly via OkHttp
+  (`BrainLiftAi.kt`); it degrades to a deterministic generator when AI is off /
+  offline / rate-limited.
+- **Cognitive-load / fatigue offload** (`BrainLiftFatigue.kt`, wired into
+  `Reviewer.answerCardInner`): detects drain (response-time slowdown vs a slow
+  personal baseline, accuracy drop, RT variability, post-error slowing;
+  EWMA-smoothed) and shows a visible Snackbar banner when it eases difficulty or
+  interleaves sub-topics. A TEST MODE flag fires interventions immediately.
+
+The key is read only from `OPENAI_API_KEY` at runtime (never stored/committed).
+Kotlin parity with the desktop numbers is enforced by `BrainLiftParityTest`.
+
 ### Attribution
 
 - The mobile companion is built on **AnkiDroid** (GPL-3.0-or-later).

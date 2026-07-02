@@ -39,6 +39,12 @@ import java.time.LocalDate
 class BrainLiftActivity : AnkiActivity() {
     private lateinit var webView: WebView
 
+    // Feature 1: the calibration cards + generated analogs currently on screen,
+    // held between rendering the test and scoring the submitted answers so the
+    // (possibly AI-generated) analogs are graded exactly as shown.
+    private var pendingCalibrationCards: List<Triple<Long, String, String>> = emptyList()
+    private var pendingCalibrationAnalogs: List<BrainLiftAi.GeneratedAnalog> = emptyList()
+
     @SuppressLint("SetJavaScriptEnabled")
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -95,6 +101,75 @@ class BrainLiftActivity : AnkiActivity() {
         load(BrainLiftHtml.diagnostic())
     }
 
+    private fun renderCalibration() {
+        launchCatchingTask {
+            val (cards, analogs, aiUsed) =
+                withCol {
+                    val cards = BrainLiftCalibration.selectCalibrationCards(this)
+                    val analogs = BrainLiftCalibration.buildCalibrationQuestions(this)
+                    val n = minOf(cards.size, analogs.size)
+                    Triple(cards.take(n), analogs.take(n), BrainLiftAi.aiEnabled(this) && BrainLiftAi.apiKeyFromEnv() != null)
+                }
+            pendingCalibrationCards = cards
+            pendingCalibrationAnalogs = analogs
+            if (cards.isEmpty()) {
+                renderDashboard()
+            } else {
+                load(BrainLiftHtml.calibration(cards, analogs, aiUsed))
+            }
+        }
+    }
+
+    private fun submitCalibrationAndRender(json: String) {
+        launchCatchingTask {
+            val o = org.json.JSONObject(json)
+            val labelsArr = o.optJSONArray("labels") ?: JSONArray()
+            val chosenArr = o.optJSONArray("chosen") ?: JSONArray()
+            val labels = (0 until labelsArr.length()).map { labelsArr.getString(it) }
+            val chosen = (0 until chosenArr.length()).map { chosenArr.getInt(it) }
+            val cards = pendingCalibrationCards
+            val analogs = pendingCalibrationAnalogs
+            val now =
+                java.time.Instant
+                    .now()
+                    .epochSecond
+            val result =
+                withCol {
+                    BrainLiftCalibration.runCalibration(this, cards, analogs, labels, chosen, now)
+                }
+            load(BrainLiftHtml.calibrationResult(result))
+        }
+    }
+
+    private fun renderSettings() {
+        launchCatchingTask {
+            val html =
+                withCol {
+                    BrainLiftHtml.settings(
+                        aiEnabled = BrainLiftAi.aiEnabled(this),
+                        model = BrainLiftAi.aiModel(this),
+                        testMode = BrainLiftFatigue.testMode(this),
+                        keyPresent = BrainLiftAi.apiKeyFromEnv() != null,
+                    )
+                }
+            load(html)
+        }
+    }
+
+    private fun toggleAiAndRender() {
+        launchCatchingTask {
+            withCol { BrainLiftAi.setAiEnabled(this, !BrainLiftAi.aiEnabled(this)) }
+            renderSettings()
+        }
+    }
+
+    private fun toggleTestModeAndRender() {
+        launchCatchingTask {
+            withCol { BrainLiftFatigue.setTestMode(this, !BrainLiftFatigue.testMode(this)) }
+            renderSettings()
+        }
+    }
+
     private fun load(html: String) {
         webView.loadDataWithBaseURL(null, html, "text/html", "utf-8", null)
     }
@@ -103,6 +178,10 @@ class BrainLiftActivity : AnkiActivity() {
         when (c) {
             "onboard" -> renderOnboarding()
             "diagnostic" -> renderDiagnostic()
+            "calibrate" -> renderCalibration()
+            "settings" -> renderSettings()
+            "ai_toggle" -> toggleAiAndRender()
+            "testmode_toggle" -> toggleTestModeAndRender()
             "study" -> finish()
             "account" -> openAccount()
             else -> renderDashboard()
@@ -144,6 +223,11 @@ class BrainLiftActivity : AnkiActivity() {
         @JavascriptInterface
         fun submitDiagnostic(json: String) {
             runOnUiThread { runDiagnosticAndRender(json) }
+        }
+
+        @JavascriptInterface
+        fun submitCalibration(json: String) {
+            runOnUiThread { submitCalibrationAndRender(json) }
         }
     }
 }

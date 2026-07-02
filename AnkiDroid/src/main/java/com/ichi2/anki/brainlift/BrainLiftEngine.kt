@@ -92,9 +92,9 @@ object BrainLiftEngine {
 
     val SYLLABUS =
         listOf(
-            Topic("GeneralProbability", "General Probability", 13.5),
-            Topic("UnivariateRV", "Univariate Random Variables", 43.5),
-            Topic("MultivariateRV", "Multivariate Random Variables", 43.5),
+            Topic("GeneralProbability", "General Probability", 26.5),
+            Topic("UnivariateRV", "Univariate Random Variables", 47.0),
+            Topic("MultivariateRV", "Multivariate Random Variables", 26.5),
         )
 
     private val MAX_WEIGHT = SYLLABUS.maxOf { it.weight }
@@ -728,6 +728,10 @@ object BrainLiftEngine {
     ): StudyPlan {
         val diag = loadDiagnostic(col)
         val diagAcc = diag?.topics?.associate { it.topicKey to it.accuracy } ?: emptyMap()
+        // Feature 1: confidence-authority multiplier (synced). Scales how
+        // strongly a topic's demonstrated "knownness" suppresses its review
+        // priority. Defaults to 1.0 when no calibration exists.
+        val authority = BrainLiftCalibration.calibrationMultiplier(col)
         val profile = loadOnboarding(col)
         val mode: String
         val weeklyHours: Double
@@ -743,7 +747,7 @@ object BrainLiftEngine {
             cov.topics
                 .map { t ->
                     val importance = t.weight / MAX_WEIGHT
-                    val masteryGap = 1.0 - t.masteredFraction
+                    val masteryGap = BrainLiftCalibration.effectiveMasteryGap(t.masteredFraction, authority)
                     val coverageGap = if (t.totalCards == 0) 1.0 else 1.0 - t.reviewedFraction
                     val diagnosticGap = if (diagAcc.containsKey(t.key)) 1.0 - diagAcc[t.key]!! else NEUTRAL_DIAGNOSTIC_GAP
                     val score =
@@ -811,11 +815,16 @@ object BrainLiftEngine {
         d: Double,
     ) = if (d != 0.0) n / d else 0.0
 
-    private fun round1(v: Double) = Math.round(v * 10.0) / 10.0
+    // The desktop reference engine rounds with Python's round(), which is
+    // round-half-to-even (banker's rounding). Math.round rounds halves up and
+    // would drift from desktop on exact .5 cases, so use Math.rint (half-to-even)
+    // to keep every measurement — including the Performance point and its
+    // low/high range — numerically identical to desktop for identical inputs.
+    private fun round1(v: Double) = Math.rint(v * 10.0) / 10.0
 
-    private fun round2(v: Double) = Math.round(v * 100.0) / 100.0
+    private fun round2(v: Double) = Math.rint(v * 100.0) / 100.0
 
-    private fun round4(v: Double) = Math.round(v * 10000.0) / 10000.0
+    private fun round4(v: Double) = Math.rint(v * 10000.0) / 10000.0
 
     private fun roundHalf(v: Double) = Math.round(v * 2.0) / 2.0
 
