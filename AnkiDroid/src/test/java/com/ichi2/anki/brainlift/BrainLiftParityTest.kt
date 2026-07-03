@@ -4,9 +4,11 @@
 package com.ichi2.anki.brainlift
 
 import org.junit.jupiter.api.Assertions.assertEquals
+import org.junit.jupiter.api.Assertions.assertFalse
 import org.junit.jupiter.api.Assertions.assertNull
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
+import java.io.File
 
 /**
  * Parity tests: these mirror the desktop Python tests
@@ -51,6 +53,59 @@ class BrainLiftParityTest {
         assertEquals(0.0, BrainLiftCalibration.effectiveMasteryGap(1.0, 1.0), eps)
         assertEquals(0.75, BrainLiftCalibration.effectiveMasteryGap(1.0, 0.25), eps)
         assertEquals(1.0, BrainLiftCalibration.effectiveMasteryGap(0.0, 1.0), eps)
+    }
+
+    // --- Feature 1: calibration SELECTION parity ----------------------------
+    // The shared SOA seed bank asset is generated from the desktop source of
+    // truth (`pylib/anki/brainlift/examp_seed.py`). Both platforms select from
+    // this bank with the identical even-spread algorithm, so they calibrate on
+    // the EXACT same 15 questions (and the same deterministic AI-off analogs,
+    // which are seeded off the source index).
+    private fun seedBankJson(): String {
+        val candidates =
+            listOf(
+                "src/main/assets/${BrainLiftCalibration.SEED_BANK_ASSET}",
+                "AnkiDroid/src/main/assets/${BrainLiftCalibration.SEED_BANK_ASSET}",
+            )
+        val file =
+            candidates.map { File(it) }.firstOrNull { it.exists() }
+                ?: error("seed bank asset not found; looked in $candidates (cwd=${File(".").absolutePath})")
+        return file.readText()
+    }
+
+    @Test
+    fun calibrationSelectsFromSharedSeedBankEvenSpread() {
+        val json = seedBankJson()
+        // The dumped asset must contain the full desktop SOA bank.
+        assertEquals(437, org.json.JSONArray(json).length())
+
+        val items = BrainLiftCalibration.seedCalibrationItems(json)
+        assertEquals(BrainLiftCalibration.CALIBRATION_TEST_SIZE, items.size)
+        assertEquals(15, items.size)
+
+        // Even-spread indices: step = 437 / 15 = 29 -> 0, 29, 58, ...
+        val expectedIds = (0 until 15).map { (it * 29).toLong() }
+        assertEquals(listOf(0L, 29, 58, 87, 116, 145, 174, 203, 232, 261, 290, 319, 348, 377, 406), expectedIds)
+        assertEquals(expectedIds, items.map { it.first })
+
+        // No duplicate ids (parity with desktop's `seen` skip logic).
+        assertEquals(items.size, items.map { it.first }.toSet().size)
+
+        // PUA glyphs stripped from every front/back (display-only cleanup).
+        val puaRe = Regex("[\\x{E000}-\\x{F8FF}\\x{F0000}-\\x{FFFFD}\\x{100000}-\\x{10FFFD}]")
+        for ((_, front, back) in items) {
+            assertFalse(puaRe.containsMatchIn(front), "front contains PUA glyph")
+            assertFalse(puaRe.containsMatchIn(back), "back contains PUA glyph")
+        }
+
+        // First item matches desktop's expected first question stem (SOA Q1).
+        val (firstId, firstFront, _) = items[0]
+        assertEquals(0L, firstId)
+        assertTrue(
+            firstFront.startsWith("A survey of a group"),
+            "unexpected first front: ${firstFront.take(60)}",
+        )
+        assertTrue(firstFront.contains("watched gymnastics"))
     }
 
     @Test

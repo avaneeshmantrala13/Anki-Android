@@ -103,12 +103,15 @@ class BrainLiftActivity : AnkiActivity() {
 
     private fun renderCalibration() {
         launchCatchingTask {
-            val (cards, analogs, aiUsed) =
+            // Select from the shared SOA seed bank (bundled asset generated from
+            // the desktop source of truth) so desktop and Android calibrate on
+            // the EXACT same questions — and, since the deterministic analog
+            // generator is seeded off the source index, the same AI-off analogs.
+            val cards = BrainLiftCalibration.seedCalibrationItems(this@BrainLiftActivity)
+            val (analogs, aiUsed) =
                 withCol {
-                    val cards = BrainLiftCalibration.selectCalibrationCards(this)
-                    val analogs = BrainLiftCalibration.buildCalibrationQuestions(this)
-                    val n = minOf(cards.size, analogs.size)
-                    Triple(cards.take(n), analogs.take(n), BrainLiftAi.aiEnabled(this) && BrainLiftAi.apiKeyFromEnv() != null)
+                    val analogs = BrainLiftCalibration.buildCalibrationQuestions(this, cards)
+                    Pair(analogs, BrainLiftAi.aiEnabled(this) && BrainLiftAi.apiKeyFromEnv() != null)
                 }
             pendingCalibrationCards = cards
             pendingCalibrationAnalogs = analogs

@@ -16,6 +16,7 @@
 
 package com.ichi2.anki.brainlift
 
+import android.content.Context
 import com.ichi2.anki.libanki.Collection
 import org.json.JSONArray
 import org.json.JSONObject
@@ -51,6 +52,29 @@ object BrainLiftCalibration {
     private const val MIN_AUTHORITY = 0.25
 
     const val SEED_DECK_NAME = "Exam P — Sample Questions"
+
+    /**
+     * Shared SOA seed bank asset, generated from the desktop source of truth
+     * (`pylib/anki/brainlift/examp_seed.py::SEED_CARDS`). Calibration selects from
+     * this bank on BOTH platforms so desktop and Android calibrate on the EXACT
+     * same questions (and therefore the same deterministic AI-off analogs, which
+     * are seeded off the source index). Regenerate with:
+     *   PYTHONPATH=pylib python3 -c "import json;from anki.brainlift.examp_seed \
+     *     import SEED_CARDS;open('.../assets/brainlift/examp_seed.json','w')\
+     *     .write(json.dumps(SEED_CARDS, ensure_ascii=False))"
+     */
+    const val SEED_BANK_ASSET = "brainlift/examp_seed.json"
+
+    // The bundled SOA solutions were extracted from a PDF whose big-bracket,
+    // integral and matrix glyphs land in the Unicode Private Use Area (e.g.
+    // U+F8EE). Those code points have no portable font glyph and render as tofu
+    // boxes, so we strip them for DISPLAY ONLY. Mirrors the desktop
+    // `calibration._PRIVATE_USE_RE`: BMP PUA plus the two supplementary PUA
+    // planes.
+    private val PRIVATE_USE_RE = Regex("[\\x{E000}-\\x{F8FF}\\x{F0000}-\\x{FFFFD}\\x{100000}-\\x{10FFFD}]")
+
+    /** Remove Unicode Private Use Area glyphs from text (display-only cleanup). */
+    fun stripPrivateUse(text: String): String = PRIVATE_USE_RE.replace(text, "")
 
     fun confidenceValue(label: String): Double = CONFIDENCE_SCALE[label] ?: 0.6
 
@@ -214,41 +238,66 @@ object BrainLiftCalibration {
     }
 
     // --- card selection + generation ----------------------------------------
-    fun selectCalibrationCards(
-        col: Collection,
+
+    /**
+     * Return [size] `(id, front, back)` items from the bundled SOA Exam P seed
+     * bank, spread across the bank for topic variety. This is an EXACT mirror of
+     * the desktop `calibration.seed_calibration_items`: same even-spread index
+     * selection, same Private-Use-Area stripping, and the stable SEED INDEX is
+     * used as the id. Selecting from the shared bank (rather than the user's
+     * collection) guarantees desktop and Android calibrate on identical
+     * questions — and, since the deterministic analog generator is seeded off
+     * this id, identical AI-off analogs too.
+     *
+     * [json] is the raw contents of [SEED_BANK_ASSET] (a JSON array of objects
+     * with `front`/`back`/`tags` keys).
+     */
+    fun seedCalibrationItems(
+        json: String,
         size: Int = CALIBRATION_TEST_SIZE,
     ): List<Triple<Long, String, String>> {
-        val ids =
-            try {
-                val byDeck = col.findCards("deck:\"$SEED_DECK_NAME\"")
-                if (byDeck.isNotEmpty()) byDeck else col.findCards("tag:ExamP::*")
-            } catch (e: Exception) {
-                emptyList()
-            }
-        val out = mutableListOf<Triple<Long, String, String>>()
-        for (cid in ids.sorted()) {
-            try {
-                val card = col.getCard(cid)
-                val note = card.note(col)
-                val keys = note.keys()
-                val front =
-                    if (keys.contains("Front")) note.getItem("Front") else note.values().firstOrNull() ?: ""
-                val back = if (keys.contains("Back")) note.getItem("Back") else ""
-                out.add(Triple(cid, front, back))
-            } catch (e: Exception) {
-                continue
-            }
-            if (out.size >= size) break
+        val bank = JSONArray(json)
+        val total = bank.length()
+        if (total == 0) return emptyList()
+        val n = minOf(size, total)
+        val step = maxOf(1, total / n) // evenly spread so we sample multiple topics
+        val items = mutableListOf<Triple<Long, String, String>>()
+        val seen = mutableSetOf<Int>()
+        for (k in 0 until n) {
+            var idx = minOf(k * step, total - 1)
+            while (idx in seen && idx < total - 1) idx += 1
+            seen.add(idx)
+            val card = bank.getJSONObject(idx)
+            val front = stripPrivateUse(card.optString("front", ""))
+            val back = stripPrivateUse(card.optString("back", ""))
+            items.add(Triple(idx.toLong(), front, back))
         }
-        return out
+        return items
     }
 
+    /** Load [SEED_BANK_ASSET] and select the calibration items (see above). */
+    fun seedCalibrationItems(
+        context: Context,
+        size: Int = CALIBRATION_TEST_SIZE,
+    ): List<Triple<Long, String, String>> = seedCalibrationItems(loadSeedBankJson(context), size)
+
+    private fun loadSeedBankJson(context: Context): String =
+        context.assets
+            .open(SEED_BANK_ASSET)
+            .bufferedReader()
+            .use { it.readText() }
+
+    /**
+     * Generate one analog per selected calibration card. The analog generator is
+     * seeded off each card's SEED INDEX id, so with AI off both platforms produce
+     * identical deterministic analogs. Order matches [cards].
+     */
     fun buildCalibrationQuestions(
         col: Collection,
-        size: Int = CALIBRATION_TEST_SIZE,
+        cards: List<Triple<Long, String, String>>,
     ): List<BrainLiftAi.GeneratedAnalog> {
         val client = BrainLiftAi.clientForCollection(col)
-        return selectCalibrationCards(col, size).map { (cid, f, b) -> client.generateAnalog(f, b, cid) }
+        return cards.map { (cid, f, b) -> client.generateAnalog(f, b, cid) }
     }
 
     // --- persistence (syncs) ------------------------------------------------
