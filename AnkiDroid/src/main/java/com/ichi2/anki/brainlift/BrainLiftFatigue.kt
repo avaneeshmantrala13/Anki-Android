@@ -17,6 +17,7 @@
 package com.ichi2.anki.brainlift
 
 import com.ichi2.anki.libanki.Collection
+import com.ichi2.anki.libanki.sched.SetDueDateDays
 import org.json.JSONArray
 import org.json.JSONObject
 import kotlin.math.exp
@@ -399,6 +400,112 @@ object BrainLiftFatigue {
     }
 
     fun lastIntervention(col: Collection): JSONObject? = getObjectOrNull(col, LAST_INTERVENTION_KEY)
+
+    // --- applying the intervention to the LIVE review queue -----------------
+    // The detector doesn't just show a banner: when it fires we actually reorder
+    // the review queue so the NEXT card served reflects the cognitive offload —
+    //   * interleave      -> pull a DIFFERENT Exam P topic to the front (variety),
+    //   * ease_difficulty -> pull the easiest available card (lowest FSRS
+    //                        difficulty — a well-known, low-load card) to the front.
+    // New cards are repositioned to the head of the new queue; already-seen cards
+    // are pulled forward with a due-date change. Everything is best-effort and can
+    // never crash reviewing. Mirror of desktop `anki.brainlift.fatigue.apply_offload`.
+
+    /** The Exam P main-topic key for a card, from its `ExamP::<Topic>::*` tag. */
+    fun cardTopicKey(
+        col: Collection,
+        cardId: Long,
+    ): String {
+        try {
+            val card = col.getCard(cardId)
+            for (tag in card.note(col).tags) {
+                if (tag.startsWith("ExamP::")) {
+                    val parts = tag.split("::")
+                    if (parts.size >= 2) return parts[1]
+                }
+            }
+        } catch (e: Exception) {
+            // best-effort: never let queue inspection disrupt reviewing
+        }
+        return ""
+    }
+
+    /** FSRS difficulty for a card (0..1-ish). Unknown/new -> 1.0 (treated as
+     * hardest) so 'ease' prefers already-seen, low-difficulty cards. */
+    fun cardDifficulty(
+        col: Collection,
+        cardId: Long,
+    ): Double {
+        try {
+            val card = col.getCard(cardId)
+            val ms = card.memoryState
+            if (ms != null) return ms.difficulty.toDouble()
+        } catch (e: Exception) {
+            // best-effort
+        }
+        return 1.0
+    }
+
+    /** Pick the card the offload should serve next, or null if none is suitable.
+     *
+     * Pure selection (no mutation) so it can be unit-tested without touching the
+     * queue. `interleave` returns a due/new card in a different main topic;
+     * `ease_difficulty` returns the lowest-FSRS-difficulty due/new card. */
+    fun selectOffloadCard(
+        col: Collection,
+        decisionType: String?,
+        currentTopicKey: String = "",
+    ): Long? {
+        val candidates =
+            try {
+                col.findCards("is:due OR is:new")
+            } catch (e: Exception) {
+                emptyList()
+            }
+        if (candidates.isEmpty()) return null
+        if (decisionType == TYPE_INTERLEAVE) {
+            for (cid in candidates) {
+                val tk = cardTopicKey(col, cid)
+                if (tk.isNotEmpty() && tk != currentTopicKey) return cid
+            }
+            return null
+        }
+        if (decisionType == TYPE_EASE) {
+            // Stable min: ties keep the earliest candidate (matches Python sorted()[0]).
+            return candidates.minByOrNull { cardDifficulty(col, it) }
+        }
+        return null
+    }
+
+    /** Reorder the live queue for an active intervention. Returns the card id
+     * pulled to the front, or null. Best-effort; never raises. */
+    fun applyOffload(
+        col: Collection,
+        decision: FatigueDecision,
+        currentTopicKey: String = "",
+    ): Long? {
+        if (!decision.intervene || decision.type == null) return null
+        return try {
+            val target = selectOffloadCard(col, decision.type, currentTopicKey) ?: return null
+            val card = col.getCard(target)
+            // New cards (type 0) are repositioned to the head of the new queue;
+            // anything already in scheduling is pulled forward to "due today".
+            if (card.type.code == 0) {
+                col.sched.sortCards(
+                    cids = listOf(target),
+                    start = 0,
+                    step = 1,
+                    shuffle = false,
+                    shift = true,
+                )
+            } else {
+                col.sched.setDueDate(listOf(target), SetDueDateDays("0"))
+            }
+            target
+        } catch (e: Exception) {
+            null
+        }
+    }
 
     // --- JSON helpers -------------------------------------------------------
     private fun toJson(s: FatigueState): JSONObject =

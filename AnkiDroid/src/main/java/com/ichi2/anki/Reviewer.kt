@@ -147,6 +147,10 @@ open class Reviewer :
 
     /** BrainLift: epoch ms when the current question was shown (for fatigue RT). */
     private var brainLiftQuestionShownAt: Long = 0L
+
+    /** BrainLift: guards [resetBrainLiftFatigueSession] so the fatigue session is
+     * reset once per entry into review (mirrors desktop's non-review -> review). */
+    private var brainLiftFatigueSessionReset: Boolean = false
     private var hasDrawerSwipeConflicts = false
     private var showWhiteboard = true
     private var prefFullscreenReview = false
@@ -390,6 +394,11 @@ open class Reviewer :
         if (isMicToolbarEnabled) {
             openMicToolbar()
         }
+
+        // BrainLift Feature 2: start a fresh fatigue session on entry into
+        // review (once per review entry), mirroring desktop's reset when the
+        // state changes to "review" from non-review.
+        resetBrainLiftFatigueSession()
 
         launchCatchingTask {
             withCol { startTimebox() }
@@ -1263,6 +1272,28 @@ open class Reviewer :
     }
 
     /**
+     * BrainLift: start a fresh fatigue session when the user enters review.
+     * Guarded to fire once per review entry (per Reviewer instance), mirroring
+     * the desktop "new_state == review and old_state != review" reset. Never
+     * allowed to disrupt reviewing.
+     */
+    private fun resetBrainLiftFatigueSession() {
+        if (brainLiftFatigueSessionReset) return
+        brainLiftFatigueSessionReset = true
+        launchCatchingTask {
+            try {
+                val now = TimeManager.time.intTimeMS() / 1000L
+                withCol {
+                    com.ichi2.anki.brainlift.BrainLiftFatigue
+                        .resetSession(this, now)
+                }
+            } catch (e: Exception) {
+                Timber.w(e, "BrainLift fatigue session reset failed")
+            }
+        }
+    }
+
+    /**
      * BrainLift: fold the just-answered card into the synced fatigue session and
      * show a clearly visible banner when a cognitive-offload intervention fires.
      * Never allowed to disrupt reviewing.
@@ -1290,7 +1321,17 @@ open class Reviewer :
                         .recordAnswer(this, rtSeconds, correct, topic, now)
                 }
             if (decision.intervene && decision.banner != null) {
-                showSnackbar("🧠 ${decision.banner}", Snackbar.LENGTH_LONG)
+                // Actually apply the offload to the live queue (not just a banner):
+                // reorder so the next served card is easier / a different topic.
+                // Runs before updateCurrentCard() refetches currentQueueState(),
+                // so the reorder affects the NEXT card shown. Mirrors desktop.
+                val served =
+                    withCol {
+                        com.ichi2.anki.brainlift.BrainLiftFatigue
+                            .applyOffload(this, decision, topic)
+                    }
+                val suffix = if (served != null) " — reordering your next card" else ""
+                showSnackbar("🧠 ${decision.banner}$suffix", Snackbar.LENGTH_LONG)
             }
         } catch (e: Exception) {
             Timber.w(e, "BrainLift fatigue tracking failed")
