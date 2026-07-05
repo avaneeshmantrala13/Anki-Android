@@ -66,14 +66,27 @@ object BrainLiftHtml {
         --bl-hero-a: #5068ea;
         --bl-hero-b: #3d51cd;
         --bl-shadow-card: 0 1px 2px rgba(18,22,45,.05), 0 1px 6px rgba(18,22,45,.04);
+        /* Distinctive type pairing (Android/WebView-safe: real system faces
+           first, then generic fallbacks). Matches the desktop app intent —
+           display for headings/figures, humanist body, mono for small labels. */
+        --bl-font-display: "Google Sans", "Product Sans", "Roboto", -apple-system,
+                           "Segoe UI", system-ui, sans-serif;
+        --bl-font-body: "Roboto", -apple-system, "Segoe UI", system-ui, sans-serif;
+        --bl-font-mono: "Roboto Mono", ui-monospace, "JetBrains Mono", Menlo,
+                        monospace;
+        /* Signature cyan glow behind every box (same as desktop). */
+        --bl-cyan: #22d3ee;
+        --bl-glow: 0 6px 22px rgba(34,211,238,.13), 0 0 0 1px rgba(34,211,238,.10);
+        --bl-glow-strong: 0 10px 30px rgba(34,211,238,.26),
+                          0 0 0 1px rgba(34,211,238,.30);
       }
       @media (prefers-color-scheme: dark) {
         :root {
-          --bl-bg: #13151c;
-          --bl-surface: #1c1f29;
-          --bl-surface-2: #262b38;
-          --bl-border: #2c3140;
-          --bl-row-line: #262b37;
+          --bl-bg: #0f1420;
+          --bl-surface: #161c2b;
+          --bl-surface-2: #202940;
+          --bl-border: #263149;
+          --bl-row-line: #202940;
           --bl-text: #e8eaf3;
           --bl-text-2: #a4aabc;
           --bl-text-3: #737990;
@@ -87,83 +100,100 @@ object BrainLiftHtml {
           --bl-hero-a: #4358cf;
           --bl-hero-b: #333fa8;
           --bl-shadow-card: 0 1px 2px rgba(0,0,0,.4);
+          --bl-glow: 0 6px 24px rgba(34,211,238,.16), 0 0 0 1px rgba(34,211,238,.16);
+          --bl-glow-strong: 0 12px 34px rgba(34,211,238,.34),
+                            0 0 0 1px rgba(34,211,238,.44);
         }
       }
       * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
-      body { font-family: -apple-system, Roboto, "Segoe UI", sans-serif; margin: 0;
+      body { font-family: var(--bl-font-body); margin: 0;
              background: var(--bl-bg); color: var(--bl-text); padding: 16px 16px 44px;
              -webkit-font-smoothing: antialiased; }
-      h1 { font-size: 20px; margin: 4px 0 2px; letter-spacing: -.02em; }
+      h1 { font-family: var(--bl-font-display); font-size: 21px; margin: 4px 0 2px;
+           letter-spacing: -.02em; }
       .sub { color: var(--bl-text-2); font-size: 13px; line-height: 1.5; margin: 2px 0 12px; }
       .card { background: var(--bl-surface); border: 1px solid var(--bl-border);
-              border-radius: 14px; padding: 16px; margin: 0 0 12px;
-              box-shadow: var(--bl-shadow-card); }
+              border-radius: 16px; padding: 16px; margin: 0 0 12px;
+              box-shadow: var(--bl-glow); }
       .hero { background: linear-gradient(160deg,var(--bl-hero-a),var(--bl-hero-b));
               color:#fff; border-color: transparent;
-              box-shadow: 0 8px 24px rgba(61,81,205,.22); }
+              box-shadow: 0 10px 30px rgba(34,211,238,.22),
+                          0 8px 24px rgba(61,81,205,.28); }
       .hero h1, .hero .sub { color:#fff; }
       .hero .sub { opacity:.92; margin-bottom: 2px; }
       .row { display:flex; gap:10px; }
       .metric { flex:1; text-align:center; padding:6px 0 2px; }
-      .metric .big { font-size: 26px; font-weight: 700; letter-spacing: -.02em;
+      .metric .big { font-family: var(--bl-font-display); font-size: 27px;
+                     font-weight: 700; letter-spacing: -.02em;
                      font-variant-numeric: tabular-nums; }
-      .metric .lbl { font-size: 11px; color: var(--bl-text-3); font-weight: 600;
-                     text-transform:uppercase; letter-spacing:.06em; margin-bottom: 2px; }
+      .metric .lbl { font-family: var(--bl-font-mono); font-size: 11px;
+                     color: var(--bl-cyan); font-weight: 600;
+                     text-transform:uppercase; letter-spacing:.08em; margin-bottom: 2px; }
       .metric .rng { font-size: 12px; color: var(--bl-text-3); margin-top:2px;
                      font-variant-numeric: tabular-nums; }
       .na { color: var(--bl-text-3); font-weight:600; }
-      .btn { display:block; width:100%; border:0; border-radius:11px; padding:14px;
-             font-size:15px; font-weight:600; color:#fff; background: var(--bl-primary);
-             margin:10px 0 0; text-align:center;
-             transition: background .12s ease, transform .06s ease; }
-      .btn:active { background: var(--bl-primary-active); transform: scale(.99); }
+      .btn { display:block; width:100%; border:0; border-radius:12px; padding:14px;
+             font-size:15px; font-weight:600; color:#fff;
+             background: linear-gradient(160deg,var(--bl-hero-a),var(--bl-hero-b));
+             box-shadow: var(--bl-glow); margin:10px 0 0; text-align:center;
+             transition: filter .12s ease, transform .06s ease, box-shadow .12s ease; }
+      .btn:active { filter: brightness(.94); transform: scale(.99); }
       .btn.secondary { background: var(--bl-primary-tint); color: var(--bl-primary);
-             border:1px solid var(--bl-primary-tint-border); }
+             border:1px solid var(--bl-primary-tint-border); box-shadow:none; }
       .btn.secondary:active { background: var(--bl-surface-2); transform: scale(.99); }
-      .btn.ghost { background: var(--bl-surface-2); color: var(--bl-text-2); }
+      .btn.ghost { background: var(--bl-surface-2); color: var(--bl-text-2);
+             box-shadow:none; }
       .btn.ghost:active { background: var(--bl-border); }
       .step { display:flex; align-items:center; gap:12px; padding:12px 0;
               border-top:1px solid var(--bl-row-line); }
       .step:first-child { border-top:0; }
-      .pill { font-size:10px; font-weight:600; padding:3px 9px; border-radius:20px;
-              text-transform:uppercase; letter-spacing:.04em; }
+      .pill { font-family: var(--bl-font-mono); font-size:10px; font-weight:600;
+              padding:3px 9px; border-radius:20px;
+              text-transform:uppercase; letter-spacing:.06em; }
       .pill.done { background: var(--bl-success-tint); color: var(--bl-success); }
       .pill.todo { background: var(--bl-primary-tint); color: var(--bl-primary); }
       .stepbody { flex:1; }
-      .stepbody .t { font-weight:600; letter-spacing:-.01em; }
+      .stepbody .t { font-family: var(--bl-font-display); font-weight:600;
+                     letter-spacing:-.01em; }
       .stepbody .d { font-size:13px; line-height:1.5; color: var(--bl-text-2);
                      margin-top:1px; }
-      table { width:100%; border-collapse:collapse; font-size:13px;
-              font-variant-numeric: tabular-nums; }
-      td, th { text-align:left; padding:9px 4px;
+      table { width:100%; border-collapse:separate; border-spacing:0; font-size:13px;
+              font-variant-numeric: tabular-nums; background: var(--bl-surface);
+              border:1px solid var(--bl-border); border-radius:14px; overflow:hidden;
+              box-shadow: var(--bl-glow); }
+      td, th { text-align:left; padding:10px 12px;
                border-bottom:1px solid var(--bl-row-line); }
       tr:last-child td { border-bottom:0; }
-      th { color: var(--bl-text-3); font-size:11px; font-weight:600;
-           text-transform:uppercase; letter-spacing:.06em; }
+      th { font-family: var(--bl-font-mono); color: var(--bl-cyan); font-size:11px;
+           font-weight:600; text-transform:uppercase; letter-spacing:.07em;
+           background: var(--bl-surface-2); }
       .bar { height:6px; border-radius:4px; background: var(--bl-surface-2);
              overflow:hidden; }
       .bar>i { display:block; height:100%; border-radius:4px;
-               background: var(--bl-primary); }
-      .tag { font-size:11px; font-weight:600; padding:2px 8px; border-radius:12px;
+               background: linear-gradient(90deg,#38bdf8,var(--bl-cyan)); }
+      .tag { font-family: var(--bl-font-mono); font-size:10.5px; font-weight:600;
+             padding:2px 8px; border-radius:12px;
              background: var(--bl-surface-2); color: var(--bl-text-2); }
       ul { margin:6px 0 0; padding-left:18px; }
       li { margin:3px 0; font-size:13px; line-height:1.5; color: var(--bl-text-2); }
       .choice { display:block; width:100%; text-align:left; padding:14px;
-                border:1px solid var(--bl-border); border-radius:11px;
+                border:1px solid var(--bl-border); border-radius:12px;
                 background: var(--bl-surface); color: var(--bl-text); margin:8px 0;
-                font-size:15px; transition: background .12s ease,
+                font-size:15px; box-shadow: var(--bl-glow);
+                transition: background .12s ease,
                 border-color .12s ease, color .12s ease; }
       .choice:active { border-color: var(--bl-primary-tint-border);
                 background: var(--bl-primary-tint); }
       .choice.sel { background: var(--bl-primary); color:#fff;
                 border-color: var(--bl-primary); }
-      label { font-size:12px; font-weight:600; color: var(--bl-text-2);
-              display:block; margin:12px 0 4px; }
+      label { font-family: var(--bl-font-mono); font-size:12px; font-weight:600;
+              color: var(--bl-text-2); display:block; margin:12px 0 4px;
+              text-transform:uppercase; letter-spacing:.05em; }
       input, select { width:100%; padding:12px; border:1px solid var(--bl-border);
-              border-radius:10px; font-size:15px; background: var(--bl-surface);
+              border-radius:12px; font-size:15px; background: var(--bl-surface);
               color: var(--bl-text); }
-      input:focus, select:focus { outline:none; border-color: var(--bl-primary);
-              box-shadow: 0 0 0 3px rgba(79,107,237,.18); }
+      input:focus, select:focus { outline:none; border-color: var(--bl-cyan);
+              box-shadow: 0 0 0 3px rgba(34,211,238,.22); }
       .muted { color: var(--bl-text-3); font-size:12px; line-height:1.5; }
     """
 
@@ -194,7 +224,7 @@ object BrainLiftHtml {
         sb.append(
             step(
                 done = v.onboarded,
-                title = "1. Set up your exam plan",
+                title = "1. Set your goals",
                 desc =
                     if (v.onboarded) {
                         "Exam ${esc(
@@ -321,17 +351,6 @@ object BrainLiftHtml {
         }
         sb.append("</table></div>")
 
-        // Study plan
-        sb.append("<div class=\"card\"><h1 style=\"font-size:17px\">Study plan (${esc(v.plan.mode)})</h1>")
-        sb.append("<p class=\"sub\">${esc(v.plan.summary)}</p>")
-        val top = v.plan.priorities.firstOrNull()
-        if (top != null) {
-            sb.append("<div class=\"t\" style=\"font-weight:700\">Study next: ${esc(top.topicName)}</div><ul>")
-            for (r in top.reasons) sb.append("<li>${esc(r)}</li>")
-            sb.append("</ul>")
-        }
-        sb.append("</div>")
-
         sb.append("<button class=\"btn\" onclick=\"cmd('study')\">Start studying</button>")
         sb.append("<button class=\"btn secondary\" onclick=\"cmd('calibrate')\">Confidence calibration</button>")
         sb.append("<button class=\"btn secondary\" onclick=\"cmd('settings')\">AI settings</button>")
@@ -414,7 +433,7 @@ object BrainLiftHtml {
         fun sel(v: String) = if (exp == v) "selected" else ""
         val body =
             """
-            <div class="card hero"><h1>Set up your plan</h1><p class="sub">Deterministic — no AI. Syncs to your desktop.</p></div>
+            <div class="card hero"><h1>Set your goals</h1><p class="sub">Deterministic — no AI. Syncs to your desktop.</p></div>
             <div class="card">
               <label>Exam date</label><input id="date" type="date" value="$date">
               <label>Goal score (0–10)</label><input id="goal" type="number" min="0" max="10" step="0.5" value="$goal">
