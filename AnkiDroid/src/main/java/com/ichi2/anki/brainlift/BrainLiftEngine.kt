@@ -72,6 +72,14 @@ object BrainLiftEngine {
     private const val W_PERFORMANCE = 0.6
     private const val W_MEMORY = 0.4
 
+    // Per-score confidence thresholds (match desktop measurements EXACTLY).
+    private const val MEMORY_CONF_HIGH_REVIEWS = 200
+    private const val MEMORY_CONF_HIGH_COVERAGE = 80.0
+    private const val MEMORY_CONF_MED_REVIEWS = 50
+    private const val MEMORY_CONF_MED_COVERAGE = 50.0
+    private const val PERFORMANCE_CONF_HIGH_ANSWERED = 12
+    private const val PERFORMANCE_CONF_MED_ANSWERED = 6
+
     // Planner weights (match desktop planner).
     private const val W_IMPORTANCE = 0.35
     private const val W_MASTERY_GAP = 0.30
@@ -484,6 +492,74 @@ object BrainLiftEngine {
             0
         }
 
+    /** Per-card `reps` for a topic's cards (empty on any failure). */
+    private fun topicReps(
+        col: Collection,
+        search: String,
+    ): List<Int> =
+        try {
+            val ids = col.findCards(search)
+            if (ids.isEmpty()) {
+                emptyList()
+            } else {
+                col.db
+                    .queryLongList("select reps from cards where id in (${ids.joinToString(",")})")
+                    .map { it.toInt() }
+            }
+        } catch (e: Exception) {
+            emptyList()
+        }
+
+    /** One card's review stats, mirroring the fields the Rust engine reads. */
+    data class CardStat(
+        val reps: Int,
+        // null when the card has no FSRS memory state (no retrievability).
+        val retrievability: Double?,
+    )
+
+    /** Per-topic aggregation result, identical shape to the Rust engine's. */
+    data class TopicAgg(
+        val totalCards: Int,
+        val reviewedCards: Int,
+        val masteredCards: Int,
+        val totalReviews: Int,
+        val averageRetrievability: Double,
+    )
+
+    /**
+     * Pure aggregation that mirrors the desktop Rust `compute_topic_mastery`
+     * loop EXACTLY (rslib/src/stats/topic_mastery.rs):
+     * - `totalReviews` is the SUM of every card's `reps` (a card answered 10
+     *   times contributes 10) — NOT the count of reviewed cards.
+     * - `reviewedCards` counts cards with `reps > 0`.
+     * - `masteredCards` counts cards whose retrievability >= threshold.
+     * - `averageRetrievability` averages ONLY over cards that have a memory
+     *   state (a retrievability value).
+     * This is the shared reference used by the Kotlin<->Rust parity test.
+     */
+    fun aggregateTopicMastery(
+        cards: List<CardStat>,
+        masteredThreshold: Double = 0.9,
+    ): TopicAgg {
+        var reviewed = 0
+        var mastered = 0
+        var totalReviews = 0
+        var withR = 0
+        var rSum = 0.0
+        for (c in cards) {
+            totalReviews += c.reps
+            if (c.reps > 0) reviewed++
+            val r = c.retrievability
+            if (r != null) {
+                withR++
+                rSum += r
+                if (r >= masteredThreshold) mastered++
+            }
+        }
+        val avgR = if (withR > 0) rSum / withR else 0.0
+        return TopicAgg(cards.size, reviewed, mastered, totalReviews, avgR)
+    }
+
     fun coverageReport(col: Collection): CoverageReport {
         val reports =
             SYLLABUS.map { topic ->
@@ -499,6 +575,11 @@ object BrainLiftEngine {
                 // card that merely has a retrievability value.
                 val mastered = count(col, "(${topic.search}) -is:new prop:r>=0.9")
                 val avgR = estimateRetrievability(col, topic.search, reviewed)
+                // FIX (audit parity): per-topic total_reviews must be the SUM of
+                // reps like the Rust engine, NOT the reviewed-card count. The
+                // previous code set `totalReviews = reviewed`, so a card answered
+                // 10 times counted as 1 review on Android but 10 on desktop.
+                val totalReviews = topicReps(col, topic.search).sum()
                 TopicReport(
                     key = topic.key,
                     name = topic.name,
@@ -506,7 +587,7 @@ object BrainLiftEngine {
                     totalCards = total,
                     reviewedCards = reviewed,
                     masteredCards = mastered,
-                    totalReviews = reviewed,
+                    totalReviews = totalReviews,
                     averageRetrievability = avgR,
                     status = classifyStatus(total, reviewed, mastered),
                 )
@@ -595,6 +676,11 @@ object BrainLiftEngine {
         val high: Double,
         val reviewedCards: Int,
         val available: Boolean,
+        // Per-score metadata (mirrors Readiness; parity with desktop).
+        val confidenceLevel: String = "none",
+        val coveragePercent: Double = 0.0,
+        val lastUpdated: Long = 0,
+        val reasons: List<String> = emptyList(),
     )
 
     data class PerformanceScore(
@@ -603,6 +689,11 @@ object BrainLiftEngine {
         val high: Double,
         val answered: Int,
         val available: Boolean,
+        // Per-score metadata (mirrors Readiness; parity with desktop).
+        val confidenceLevel: String = "none",
+        val coveragePercent: Double = 0.0,
+        val lastUpdated: Long = 0,
+        val reasons: List<String> = emptyList(),
     )
 
     data class Readiness(
@@ -625,6 +716,57 @@ object BrainLiftEngine {
 
     private fun margin(n: Int) = min(0.25, 0.5 / sqrt(n + 1.0))
 
+    // How sure we are of the Memory estimate. Mirrors desktop `_memory_confidence`.
+    fun memoryConfidence(
+        reviewedCards: Int,
+        studiedCoverage: Double,
+    ): String =
+        when {
+            reviewedCards >= MEMORY_CONF_HIGH_REVIEWS && studiedCoverage >= MEMORY_CONF_HIGH_COVERAGE -> "high"
+            reviewedCards >= MEMORY_CONF_MED_REVIEWS && studiedCoverage >= MEMORY_CONF_MED_COVERAGE -> "medium"
+            else -> "low"
+        }
+
+    private fun memoryReasons(
+        reviewedCards: Int,
+        studiedCoverage: Double,
+        confidence: String,
+    ): List<String> =
+        listOf(
+            "FSRS recall over $reviewedCards reviewed cards",
+            "${pctInt(studiedCoverage)}% of the syllabus studied",
+            when (confidence) {
+                "high" -> "High confidence: broad, well-reviewed coverage"
+                "medium" -> "Medium confidence: moderate review history"
+                else -> "Low confidence: limited reviews so far"
+            },
+        )
+
+    // How sure we are of the Performance estimate. Mirrors desktop
+    // `_performance_confidence`.
+    fun performanceConfidence(answered: Int): String =
+        when {
+            answered >= PERFORMANCE_CONF_HIGH_ANSWERED -> "high"
+            answered >= PERFORMANCE_CONF_MED_ANSWERED -> "medium"
+            else -> "low"
+        }
+
+    private fun performanceReasons(
+        answered: Int,
+        totalQuestions: Int,
+        coverage: Double,
+        confidence: String,
+    ): List<String> =
+        listOf(
+            "Transfer accuracy over $answered diagnostic questions",
+            "$answered of $totalQuestions question bank answered (${pctInt(coverage)}%)",
+            when (confidence) {
+                "high" -> "High confidence: full diagnostic completed"
+                "medium" -> "Medium confidence: partial diagnostic"
+                else -> "Low confidence: few questions answered"
+            },
+        )
+
     fun computeMemory(cov: CoverageReport): MemoryScore {
         var totalWeight = 0.0
         var weighted = 0.0
@@ -639,7 +781,19 @@ object BrainLiftEngine {
         if (reviewed == 0 || totalWeight == 0.0) return MemoryScore(0.0, 0.0, 0.0, 0, false)
         val point = clamp(weighted / totalWeight)
         val m = margin(reviewed)
-        return MemoryScore(round4(point), round4(clamp(point - m)), round4(clamp(point + m)), reviewed, true)
+        val studiedCoverage = round1(cov.studiedCoveragePercent)
+        val confidence = memoryConfidence(reviewed, studiedCoverage)
+        return MemoryScore(
+            point = round4(point),
+            low = round4(clamp(point - m)),
+            high = round4(clamp(point + m)),
+            reviewedCards = reviewed,
+            available = true,
+            confidenceLevel = confidence,
+            coveragePercent = studiedCoverage,
+            lastUpdated = nowSeconds(),
+            reasons = memoryReasons(reviewed, studiedCoverage, confidence),
+        )
     }
 
     fun computePerformance(diag: DiagnosticResult?): PerformanceScore {
@@ -653,7 +807,20 @@ object BrainLiftEngine {
         }
         val point = if (totalWeight > 0) clamp(weighted / totalWeight) else diag.overallAccuracy
         val m = margin(diag.answered)
-        return PerformanceScore(round4(point), round4(clamp(point - m)), round4(clamp(point + m)), diag.answered, true)
+        val totalQuestions = if (diag.totalQuestions > 0) diag.totalQuestions else QUESTION_BANK.size
+        val coverage = round1(if (totalQuestions > 0) diag.answered.toDouble() / totalQuestions * 100.0 else 0.0)
+        val confidence = performanceConfidence(diag.answered)
+        return PerformanceScore(
+            point = round4(point),
+            low = round4(clamp(point - m)),
+            high = round4(clamp(point + m)),
+            answered = diag.answered,
+            available = true,
+            confidenceLevel = confidence,
+            coveragePercent = coverage,
+            lastUpdated = nowSeconds(),
+            reasons = performanceReasons(diag.answered, totalQuestions, coverage, confidence),
+        )
     }
 
     fun computeReadiness(
@@ -820,6 +987,12 @@ object BrainLiftEngine {
     // would drift from desktop on exact .5 cases, so use Math.rint (half-to-even)
     // to keep every measurement — including the Performance point and its
     // low/high range — numerically identical to desktop for identical inputs.
+    // Integer percentage with Python-identical banker's rounding (matches
+    // desktop f"{x:.0f}") for the per-score reason strings.
+    private fun pctInt(v: Double): Long = Math.rint(v).toLong()
+
+    private fun nowSeconds(): Long = System.currentTimeMillis() / 1000L
+
     private fun round1(v: Double) = Math.rint(v * 10.0) / 10.0
 
     private fun round2(v: Double) = Math.rint(v * 100.0) / 100.0

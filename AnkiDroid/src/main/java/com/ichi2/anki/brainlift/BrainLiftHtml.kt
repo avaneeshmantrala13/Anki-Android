@@ -245,8 +245,26 @@ object BrainLiftHtml {
 
         // Three measurements
         sb.append("<div class=\"card\"><h1 style=\"font-size:17px\">Three measurements</h1><div class=\"row\">")
-        sb.append(metric("Memory", v.memory.available, v.memory.point, v.memory.low, v.memory.high))
-        sb.append(metric("Performance", v.performance.available, v.performance.point, v.performance.low, v.performance.high))
+        sb.append(
+            metric(
+                "Memory",
+                v.memory.available,
+                v.memory.point,
+                v.memory.low,
+                v.memory.high,
+                if (v.memory.available) v.memory.confidenceLevel else null,
+            ),
+        )
+        sb.append(
+            metric(
+                "Performance",
+                v.performance.available,
+                v.performance.point,
+                v.performance.low,
+                v.performance.high,
+                if (v.performance.available) v.performance.confidenceLevel else null,
+            ),
+        )
         sb.append("<div class=\"metric\"><div class=\"lbl\">Readiness</div>")
         if (v.readiness.available) {
             sb.append("<div class=\"big\">${v.readiness.projectedScore}</div>")
@@ -255,6 +273,28 @@ object BrainLiftHtml {
             sb.append("<div class=\"big na\">N/A</div><div class=\"rng\">Not enough data</div>")
         }
         sb.append("</div></div>")
+        // Per-score metadata (parity with desktop): confidence, coverage, why,
+        // last-updated for Memory and Performance.
+        sb.append(
+            scoreMeta(
+                "Memory",
+                v.memory.available,
+                v.memory.confidenceLevel,
+                v.memory.coveragePercent,
+                v.memory.lastUpdated,
+                v.memory.reasons,
+            ),
+        )
+        sb.append(
+            scoreMeta(
+                "Performance",
+                v.performance.available,
+                v.performance.confidenceLevel,
+                v.performance.coveragePercent,
+                v.performance.lastUpdated,
+                v.performance.reasons,
+            ),
+        )
         // Readiness evidence / give-up explanation
         if (!v.readiness.available) {
             sb.append("<p class=\"muted\">Readiness is withheld until there is enough evidence:</p><ul>")
@@ -307,14 +347,47 @@ object BrainLiftHtml {
         point: Double,
         low: Double,
         high: Double,
+        confidence: String? = null,
     ): String {
         val body =
             if (available) {
-                "<div class=\"big\">${pct(point * 100)}</div><div class=\"rng\">${pct(low * 100)}–${pct(high * 100)}</div>"
+                val conf = if (confidence != null) "<div class=\"rng\">${esc(confidence)}</div>" else ""
+                "<div class=\"big\">${pct(point * 100)}</div><div class=\"rng\">${pct(low * 100)}–${pct(high * 100)}</div>$conf"
             } else {
                 "<div class=\"big na\">N/A</div><div class=\"rng\">Not enough data</div>"
             }
         return "<div class=\"metric\"><div class=\"lbl\">$label</div>$body</div>"
+    }
+
+    // Time formatting must match desktop (time.strftime("%Y-%m-%d %H:%M")).
+    private fun fmtUpdated(epochSeconds: Long): String {
+        if (epochSeconds <= 0) return "—"
+        val fmt = java.text.SimpleDateFormat("yyyy-MM-dd HH:mm", java.util.Locale.US)
+        return fmt.format(java.util.Date(epochSeconds * 1000L))
+    }
+
+    /** Per-score metadata block: confidence, coverage, why-reasons, last-updated.
+     * Mirrors the desktop dashboard `_score_meta` so the two stay in parity. */
+    private fun scoreMeta(
+        label: String,
+        available: Boolean,
+        confidence: String,
+        coveragePercent: Double,
+        lastUpdated: Long,
+        reasons: List<String>,
+    ): String {
+        if (!available) return ""
+        val sb = StringBuilder()
+        sb.append("<div class=\"card\"><h1 style=\"font-size:15px\">${esc(label)} — how sure</h1>")
+        sb.append(
+            "<p class=\"sub\">Confidence: ${esc(confidence)} · coverage ${pct(coveragePercent)}</p>",
+        )
+        sb.append("<p class=\"muted\">Why:</p><ul>")
+        for (r in reasons) sb.append("<li>${esc(r)}</li>")
+        sb.append("</ul>")
+        sb.append("<p class=\"muted\">Last updated: ${esc(fmtUpdated(lastUpdated))}</p>")
+        sb.append("</div>")
+        return sb.toString()
     }
 
     private fun step(

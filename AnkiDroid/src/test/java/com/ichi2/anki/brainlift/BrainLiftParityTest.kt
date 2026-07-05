@@ -5,6 +5,7 @@ package com.ichi2.anki.brainlift
 
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertFalse
+import org.junit.jupiter.api.Assertions.assertNotEquals
 import org.junit.jupiter.api.Assertions.assertNull
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
@@ -432,5 +433,138 @@ class BrainLiftParityTest {
         assertTrue(!d.usedModel)
         assertEquals(0.0, d.probability, eps)
         assertTrue(!d.intervene)
+    }
+
+    // --- Area 2: Kotlin<->Rust coverage / topic-mastery parity ---------------
+    // The desktop live path aggregates per-topic stats in Rust
+    // (rslib/src/stats/topic_mastery.rs). `aggregateTopicMastery` reproduces that
+    // loop on device. The Python cross-check lives in
+    // pylib/tests/test_brainlift_scoring_science.py, which runs the Rust engine
+    // on the SAME kind of fixture (cards with known reps) and asserts the same
+    // total_reviews = sum(reps) property.
+
+    @Test
+    fun topicMasteryAggregationMatchesRustSemantics() {
+        // 4 cards: reps=[10,3,0,5], retrievability=[0.95, 0.40, none, 0.92].
+        val cards =
+            listOf(
+                BrainLiftEngine.CardStat(10, 0.95),
+                BrainLiftEngine.CardStat(3, 0.40),
+                BrainLiftEngine.CardStat(0, null),
+                BrainLiftEngine.CardStat(5, 0.92),
+            )
+        val agg = BrainLiftEngine.aggregateTopicMastery(cards)
+        assertEquals(4, agg.totalCards)
+        assertEquals(3, agg.reviewedCards) // reps>0: 10,3,5
+        assertEquals(2, agg.masteredCards) // r>=0.9: 0.95, 0.92
+        assertEquals(18, agg.totalReviews) // SUM of reps 10+3+0+5, NOT the card count
+        // average only over the 3 cards that have a memory state
+        assertEquals((0.95 + 0.40 + 0.92) / 3.0, agg.averageRetrievability, 1e-9)
+    }
+
+    @Test
+    fun perTopicTotalReviewsIsRepsSumNotCardCount() {
+        // Regression test for the audit-flagged bug: Android previously set
+        // per-topic totalReviews = reviewed-card COUNT, while Rust sums reps.
+        val cards = listOf(BrainLiftEngine.CardStat(10, 1.0), BrainLiftEngine.CardStat(7, 1.0))
+        val agg = BrainLiftEngine.aggregateTopicMastery(cards)
+        assertEquals(2, agg.reviewedCards)
+        assertEquals(17, agg.totalReviews) // was 2 under the old card-count bug
+        assertNotEquals(agg.reviewedCards, agg.totalReviews)
+    }
+
+    @Test
+    fun emptyTopicAggregatesToZeros() {
+        val agg = BrainLiftEngine.aggregateTopicMastery(emptyList())
+        assertEquals(0, agg.totalCards)
+        assertEquals(0, agg.reviewedCards)
+        assertEquals(0, agg.masteredCards)
+        assertEquals(0, agg.totalReviews)
+        assertEquals(0.0, agg.averageRetrievability, eps)
+    }
+
+    // --- Area 2: per-score metadata parity (Memory / Performance) ------------
+    @Test
+    fun memoryConfidenceThresholdsMatchDesktop() {
+        assertEquals("high", BrainLiftEngine.memoryConfidence(200, 80.0))
+        assertEquals("medium", BrainLiftEngine.memoryConfidence(50, 50.0))
+        // high review volume but coverage below 80 -> only medium
+        assertEquals("medium", BrainLiftEngine.memoryConfidence(500, 50.0))
+        assertEquals("low", BrainLiftEngine.memoryConfidence(49, 90.0))
+        assertEquals("low", BrainLiftEngine.memoryConfidence(0, 0.0))
+    }
+
+    @Test
+    fun performanceConfidenceThresholdsMatchDesktop() {
+        assertEquals("high", BrainLiftEngine.performanceConfidence(12))
+        assertEquals("medium", BrainLiftEngine.performanceConfidence(6))
+        assertEquals("medium", BrainLiftEngine.performanceConfidence(11))
+        assertEquals("low", BrainLiftEngine.performanceConfidence(5))
+        assertEquals("low", BrainLiftEngine.performanceConfidence(0))
+    }
+
+    @Test
+    fun computeMemoryExposesMetadataInParity() {
+        val topics =
+            listOf(
+                BrainLiftEngine.TopicReport(
+                    key = "GeneralProbability",
+                    name = "General Probability",
+                    weight = 26.5,
+                    totalCards = 300,
+                    reviewedCards = 250,
+                    masteredCards = 200,
+                    totalReviews = 900,
+                    averageRetrievability = 0.8,
+                    status = BrainLiftEngine.COVERED,
+                ),
+            )
+        val cov = BrainLiftEngine.CoverageReport(topics, 100.0, 85.0, 66.7)
+        val m = BrainLiftEngine.computeMemory(cov)
+        assertTrue(m.available)
+        assertEquals("high", m.confidenceLevel)
+        assertEquals(85.0, m.coveragePercent, eps)
+        assertEquals(
+            listOf(
+                "FSRS recall over 250 reviewed cards",
+                "85% of the syllabus studied",
+                "High confidence: broad, well-reviewed coverage",
+            ),
+            m.reasons,
+        )
+    }
+
+    @Test
+    fun computePerformanceExposesMetadataInParity() {
+        val topics =
+            listOf(
+                BrainLiftEngine.TopicDiagnostic("GeneralProbability", "General Probability", 4, 3, 0.75, 5.0, 0.5),
+                BrainLiftEngine.TopicDiagnostic("UnivariateRV", "Univariate Random Variables", 4, 3, 0.75, 5.0, 0.5),
+                BrainLiftEngine.TopicDiagnostic("MultivariateRV", "Multivariate Random Variables", 4, 3, 0.75, 5.0, 0.5),
+            )
+        val diag =
+            BrainLiftEngine.DiagnosticResult(
+                totalQuestions = 12,
+                answered = 12,
+                overallAccuracy = 0.75,
+                avgTimeSeconds = 5.0,
+                avgConfidence = 0.5,
+                calibrationGap = -0.25,
+                topics = topics,
+                weakTopicKeys = emptyList(),
+            )
+        val p = BrainLiftEngine.computePerformance(diag)
+        assertTrue(p.available)
+        assertEquals(12, p.answered)
+        assertEquals("high", p.confidenceLevel)
+        assertEquals(100.0, p.coveragePercent, eps)
+        assertEquals(
+            listOf(
+                "Transfer accuracy over 12 diagnostic questions",
+                "12 of 12 question bank answered (100%)",
+                "High confidence: full diagnostic completed",
+            ),
+            p.reasons,
+        )
     }
 }
