@@ -29,9 +29,16 @@
     <dimen name="deck_picker_right_padding">4dp</dimen>
     <dimen name="note_editor_toolbar_height">52dp</dimen>
 
-    <dimen name="mtrl_snackbar_background_corner_radius">8dp</dimen>
-    <dimen name="popup_corner_radius">4dp</dimen>
-    <dimen name="dialog_corner_radius">8dp</dimen>
+    <dimen name="mtrl_snackbar_background_corner_radius">12dp</dimen>
+    <dimen name="popup_corner_radius">12dp</dimen>
+    <dimen name="dialog_corner_radius">20dp</dimen>
+
+    <!-- BrainLift rounded corners -->
+    <dimen name="brainlift_corner_button">12dp</dimen>
+    <dimen name="brainlift_corner_textfield">12dp</dimen>
+    <dimen name="brainlift_corner_card">16dp</dimen>
+    <dimen name="brainlift_corner_dialog">20dp</dimen>
+    <dimen name="brainlift_corner_bottomsheet">20dp</dimen>
 
     <dimen name="reviewer_side_margin">8dp</dimen>
     <dimen name="answer_button_margin_horizontal">3dp</dimen>

@@ -220,7 +220,8 @@
     </style>
 
     <style name="ThemeOverlay.AnkiDroid.AlertDialog" parent="ThemeOverlay.Material3.MaterialAlertDialog">
-        <item name="dialogCornerRadius">@dimen/m3_alert_dialog_corner_size</item>
+        <item name="dialogCornerRadius">@dimen/brainlift_corner_dialog</item>
+        <item name="shapeAppearanceOverlay">@style/ShapeAppearance.BrainLift.LargeComponent</item>
         <item name="materialAlertDialogBodyTextStyle">@style/AnkiDroid.AlertDialog.Body.Text</item>
         <item name="android:windowBackground">@drawable/material_dialog_background</item>
     </style>
@@ -232,6 +233,23 @@
     </style>
 
     <style name="TextAppearance.AnkiDroid.TopAppBar.Title" parent="TextAppearance.Material3.TitleMedium" />
+
+    <!-- ===== BrainLift rounded corner shape appearances ===== -->
+    <!-- Small: buttons, chips, text fields (~12dp) -->
+    <style name="ShapeAppearance.BrainLift.SmallComponent" parent="ShapeAppearance.Material3.SmallComponent">
+        <item name="cornerFamily">rounded</item>
+        <item name="cornerSize">@dimen/brainlift_corner_button</item>
+    </style>
+    <!-- Medium: cards, dropdowns (~16dp) -->
+    <style name="ShapeAppearance.BrainLift.MediumComponent" parent="ShapeAppearance.Material3.MediumComponent">
+        <item name="cornerFamily">rounded</item>
+        <item name="cornerSize">@dimen/brainlift_corner_card</item>
+    </style>
+    <!-- Large: dialogs, bottom sheets (~20dp) -->
+    <style name="ShapeAppearance.BrainLift.LargeComponent" parent="ShapeAppearance.Material3.LargeComponent">
+        <item name="cornerFamily">rounded</item>
+        <item name="cornerSize">@dimen/brainlift_corner_dialog</item>
+    </style>
 
     <style name="AnkiDroid.AlertDialog.Body.Text" parent="MaterialAlertDialog.Material3.Body.Text">
         <!-- The default style uses onSurfaceVariant, which isn't defined yet -->
@@ -256,6 +274,18 @@
 
     <style name="ThemeOverlay.App.BottomSheetDialog" parent="ThemeOverlay.Material3.BottomSheetDialog">
         <item name="android:navigationBarColor" tools:ignore="NewApi">@android:color/transparent</item>
+        <item name="bottomSheetStyle">@style/Widget.BrainLift.BottomSheet</item>
+    </style>
+
+    <style name="Widget.BrainLift.BottomSheet" parent="Widget.Material3.BottomSheet.Modal">
+        <item name="shapeAppearanceOverlay">@style/ShapeAppearance.BrainLift.BottomSheet</item>
+    </style>
+    <style name="ShapeAppearance.BrainLift.BottomSheet" parent="ShapeAppearance.Material3.LargeComponent">
+        <item name="cornerFamily">rounded</item>
+        <item name="cornerSizeTopLeft">@dimen/brainlift_corner_bottomsheet</item>
+        <item name="cornerSizeTopRight">@dimen/brainlift_corner_bottomsheet</item>
+        <item name="cornerSizeBottomLeft">0dp</item>
+        <item name="cornerSizeBottomRight">0dp</item>
     </style>
 
     <style name="Widget.AnkiDroid.CardView.Recording" parent="CardView">

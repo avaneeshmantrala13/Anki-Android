@@ -10,26 +10,36 @@
     <color name="theme_dark_drawer_item">#DEFFFFFF</color>
 
     <style name="Base.Theme.Dark" parent="@style/Theme.Material3.Dark.NoActionBar">
-        <!-- Android colors -->
-        <item name="colorPrimary">@color/material_blue_400</item>
+        <!-- Android colors (BrainLift navy + indigo + cyan) -->
+        <item name="colorPrimary">@color/brainlift_indigo_light</item>
         <item name="colorOnPrimary">@color/white</item>
-        <item name="colorPrimaryDark">@color/theme_dark_primary_dark</item>
-        <item name="colorSurface">?android:colorBackground</item>
-        <item name="colorAccent">@color/material_blue_400</item>
-        <item name="colorOnSurface">@color/white</item>
+        <item name="colorPrimaryDark">@color/brainlift_bg_dark</item>
+        <item name="colorSecondary">@color/brainlift_cyan</item>
+        <item name="colorSurface">@color/brainlift_surface_dark</item>
+        <item name="colorAccent">@color/brainlift_cyan</item>
+        <item name="colorOnSurface">@color/brainlift_on_surface_dark</item>
+        <item name="colorSurfaceVariant">@color/brainlift_surface_variant_dark</item>
+        <item name="colorOnSurfaceVariant">@color/brainlift_on_surface_dark</item>
+        <item name="colorOutline">@color/brainlift_outline_dark</item>
+        <item name="colorOutlineVariant">@color/brainlift_outline_dark</item>
         <item name="colorPrimaryContainer">@color/white</item> <!-- Switch thumb color when disabled and being pressed -->
         <item name="colorOnPrimaryContainer">@color/white</item> <!-- FAB icons -->
 
+        <!-- BrainLift rounded corners -->
+        <item name="shapeAppearanceSmallComponent">@style/ShapeAppearance.BrainLift.SmallComponent</item>
+        <item name="shapeAppearanceMediumComponent">@style/ShapeAppearance.BrainLift.MediumComponent</item>
+        <item name="shapeAppearanceLargeComponent">@style/ShapeAppearance.BrainLift.LargeComponent</item>
+
         <item name="android:textColor">@color/text_color_dark</item>
         <item name="android:textColorSecondary">@color/text_color_secondary_dark</item>
-        <item name="android:colorBackground">@color/material_theme_grey</item>
-        <item name="android:windowBackground">@color/material_theme_grey</item>
-        <item name="colorSecondaryContainer">#3C5A6E</item>
+        <item name="android:colorBackground">@color/brainlift_bg_dark</item>
+        <item name="android:windowBackground">@color/brainlift_bg_dark</item>
+        <item name="colorSecondaryContainer">@color/brainlift_secondary_container_dark</item>
         <item name="colorOnSecondaryContainer">@color/white</item>
 
         <item name="colorSurfaceContainerHighest">?attr/colorSurfaceContainer</item>
-        <item name="colorSurfaceContainerHigh">#424C54</item>
-        <item name="colorSurfaceContainer">#0F42A5F5</item>
+        <item name="colorSurfaceContainerHigh">@color/brainlift_surface_variant_dark</item>
+        <item name="colorSurfaceContainer">@color/brainlift_surface_dark</item>
         <item name="colorSurfaceContainerLow">?android:attr/colorBackground</item>
         <!-- Widget colors -->
         <item name="widgetColorActivated">?attr/colorAccent</item>
@@ -42,28 +52,29 @@
         <item name="popupMenuStyle">@style/PopupMenuStyle</item>
         <item name="spinnerStyle">@style/SpinnerStyle</item>
         <!-- Action bar styles -->
-        <item name="appBarColor">@color/theme_dark_primary</item>
+        <item name="appBarColor">@color/brainlift_surface_dark</item>
+        <item name="appBarBackground">@drawable/brainlift_appbar_gradient</item>
         <item name="windowActionBar">false</item>
         <item name="windowNoTitle">true</item>
         <item name="windowActionModeOverlay">true</item>
         <item name="actionBarTextColor">@color/white</item>
         <item name="actionBarPopupTextColor">@color/theme_dark_primary_text</item>
-        <item name="actionModeBackground">@color/theme_dark_primary</item>
+        <item name="actionModeBackground">@color/brainlift_indigo</item>
         <!-- Tab layout -->
-        <item name="tabLayoutBackgroundColor">@color/theme_dark_primary</item>
-        <item name="tabActiveIconColor">@color/material_blue_500</item>
+        <item name="tabLayoutBackgroundColor">@color/brainlift_indigo</item>
+        <item name="tabActiveIconColor">@color/white</item>
         <!-- Deck list colors and divider -->
         <item name="currentDeckBackground">@drawable/item_background_selected</item>
-        <item name="currentDeckBackgroundColor">@color/theme_dark_row_current</item>
-        <item name="focusedRowBackgroundColor">@color/theme_dark_row_current</item>
-        <item name="dynDeckColor">@color/material_light_blue_500</item>
+        <item name="currentDeckBackgroundColor">@color/brainlift_row_current_dark</item>
+        <item name="focusedRowBackgroundColor">@color/brainlift_row_current_dark</item>
+        <item name="dynDeckColor">@color/brainlift_indigo_light</item>
         <item name="deckDivider">@drawable/divider_dark</item>
         <item name="expandRef">@drawable/ic_chevron_right_white</item>
         <item name="collapseRef">@drawable/ic_expand_more_white</item>
-        <!-- Count colors -->
-        <item name="newCountColor">@color/material_indigo_200</item>
-        <item name="learnCountColor">@color/material_red_200</item>
-        <item name="reviewCountColor">@color/material_green_200</item>
+        <!-- Count colors: new=indigo, learn=amber, review=cyan (distinguishable) -->
+        <item name="newCountColor">@color/brainlift_indigo_light</item>
+        <item name="learnCountColor">@color/brainlift_amber_light</item>
+        <item name="reviewCountColor">@color/brainlift_cyan</item>
         <item name="buryCountColor">@color/disabled_gray_dark</item>
         <item name="zeroCountColor">#404040</item>
         <!-- Study Screen colors -->
@@ -118,9 +129,9 @@
         <item name="buttonShadowColor">#bdbdbd</item>
         <item name="buttonRippleColor">#BABABA</item>
         <item name="buttonForegroundColor">#757575</item>
-        <!-- FAB -->
-        <item name="fab_normal">@color/material_light_blue_700</item>
-        <item name="fab_pressed">@color/material_light_blue_900</item>
+        <!-- FAB (also color of the Study button in StudyOptions) -->
+        <item name="fab_normal">@color/brainlift_indigo</item>
+        <item name="fab_pressed">@color/brainlift_indigo_dark</item>
         <!-- Images -->
         <item name="navDrawerImage">@drawable/nav_drawer_logo_dark_theme</item>
         <!-- Dialog styles -->
@@ -134,8 +145,8 @@
         <item name="popupBackgroundColor">@color/popup_background_theme_dark</item>
         <item name="editTextDisabled">@color/material_grey_500</item>
         <item name="overflowAndPopupMenuIconColor">#9effffff</item>
-        <!-- StatusBar -->
-        <item name="android:statusBarColor">@color/theme_dark_primary</item>
+        <!-- StatusBar (matches top of the app-bar gradient) -->
+        <item name="android:statusBarColor">@color/brainlift_grad_start</item>
         <item name="android:windowLightStatusBar">false</item>
         <!-- Navbar -->
         <item name="android:navigationBarColor">@color/material_theme_grey</item>

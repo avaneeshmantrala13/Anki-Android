@@ -6,7 +6,7 @@
     android:layout_width="match_parent"
     android:layout_height="wrap_content"
     android:layout_alignParentTop="true"
-    android:background="?attr/appBarColor"
+    android:background="?attr/appBarBackground"
     android:minHeight="?attr/actionBarSize"
     android:theme="@style/ActionBarStyle"
     app:navigationContentDescription="@string/abc_action_bar_up_description"

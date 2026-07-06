@@ -20,6 +20,9 @@
         <!-- Widget colors -->
         <item name="widgetColorActivated">?attr/colorAccent</item>
         <!-- Action bar styles -->
+        <!-- Keep the Plain theme's flat grey app bar (no BrainLift gradient). A color
+             resource is valid where a drawable reference is expected. -->
+        <item name="appBarBackground">@color/theme_plain_primary</item>
         <item name="actionBarPopupTextColor">@color/theme_plain_primary_text</item>
         <item name="actionModeBackground">@color/theme_plain_primary</item>
         <!-- Tab layout -->

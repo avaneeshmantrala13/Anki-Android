@@ -76,5 +76,39 @@
     <color name="idle_divider_color">#C7C7C7</color>
     <color name="drag_divider_color">#1A90FF</color>
     <color name="divider_handle_color">#4D4D4D</color>
+
+    <!-- ===== BrainLift design tokens (match desktop dashboard) ===== -->
+    <!-- Brand -->
+    <color name="brainlift_indigo">#4f6bed</color>          <!-- light primary -->
+    <color name="brainlift_indigo_dark">#3d51cd</color>     <!-- primary variant / dark -->
+    <color name="brainlift_indigo_light">#7387f2</color>    <!-- dark-theme primary -->
+    <color name="brainlift_cyan">#22d3ee</color>            <!-- accent / secondary -->
+    <color name="brainlift_cyan_dark">#0e93ab</color>       <!-- accent readable on light bg -->
+    <!-- Gradient stops for prominent actions / app bar -->
+    <color name="brainlift_grad_start">#5068ea</color>
+    <color name="brainlift_grad_end">#3d51cd</color>
+    <!-- Semantic count colors (kept distinguishable) -->
+    <color name="brainlift_amber">#e0870b</color>           <!-- learn (light) -->
+    <color name="brainlift_amber_light">#fbbf24</color>     <!-- learn (dark) -->
+    <!-- Light surfaces -->
+    <color name="brainlift_bg_light">#f6f7fb</color>
+    <color name="brainlift_surface_light">#ffffff</color>
+    <color name="brainlift_surface_variant_light">#eef1f8</color>
+    <color name="brainlift_outline_light">#e4e7f0</color>
+    <color name="brainlift_on_surface_light">#1b1e28</color>
+    <color name="brainlift_secondary_container_light">#cdf3fa</color>
+    <color name="brainlift_row_current_light">#e7ebfa</color>
+    <!-- Dark surfaces (BrainLift navy) -->
+    <color name="brainlift_bg_dark">#0f1420</color>
+    <color name="brainlift_surface_dark">#161c2b</color>
+    <color name="brainlift_surface_variant_dark">#202940</color>
+    <color name="brainlift_outline_dark">#263149</color>
+    <color name="brainlift_on_surface_dark">#e8eaf3</color>
+    <color name="brainlift_secondary_container_dark">#123b47</color>
+    <color name="brainlift_row_current_dark">#202940</color>
+    <!-- Black (OLED) night surfaces, BrainLift-tinted -->
+    <color name="brainlift_bg_black">#0a0e17</color>
+    <color name="brainlift_surface_black">#10151f</color>
+    <color name="brainlift_row_current_black">#161c2b</color>
 </resources>
 

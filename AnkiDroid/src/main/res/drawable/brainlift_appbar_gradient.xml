@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- BrainLift indigo gradient used for the top app bar / toolbar.
+     Matches the desktop dashboard "primary" gradient (#5068ea -> #3d51cd). -->
+<shape xmlns:android="http://schemas.android.com/apk/res/android"
+    android:shape="rectangle">
+    <gradient
+        android:startColor="@color/brainlift_grad_start"
+        android:endColor="@color/brainlift_grad_end"
+        android:angle="315" />
+</shape>
